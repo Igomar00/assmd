@@ -1,0 +1,81 @@
+# Job configuration - USE ABSOLUTE PATHS/REALPATH TO BE SAFE
+job:
+  working_dir: ""  #path that will be dedicated to running ASSMD, locked to other processes
+  slurm_log_dir: "" #path where slurm logs from submitit will be stored
+  
+  slurm_node:   # Slurm configuration for simulation nodes
+    partition: "proxima"  # partition with GPU access for simulation running 
+    time: 60 # wall-time in minutes
+    setup_commands:  #to be executed before each simulation - remember to load/source Amber and also activate proper conda env
+      - "source /mnt/storage_6/project_data/pl0252-02/software/set_env_amber24_proxima.sh"
+      - "source /mnt/storage_6/project_data/pl0252-02/igomar/software/miniforge3/bin/activate ass_old"
+    memory_gb: 8    # RAM for simulation node
+    gres: "gpu:1"    # generic resource 
+    output: "slurm-%j.out"  # name for slurm log files
+    name: "adaptive_md"   # job names for simulation runs
+    ncpus: 1 # number of cpu cores per simulation run
+    qos: "tesla" #quality of service - for eagle tesla must be selected
+    cluster: "eagle" #for now only option
+    account: "pl0252-02" #grant account from eagle
+  slurm_master: # Slurm configuration for processing 
+    partition: "standard"  
+    time: 60 # wall time
+    memory_gb: 16   # recommend at least 16
+    output: "slurm-%j.out"  
+    name: "adaptive"   
+    qos: "standard"
+    ncpus: 8 # recommend at least 8
+    cluster: "eagle"
+    setup_commands:         # setup for processing - purge modules and load conda env
+      - "module purge"
+      - "source /mnt/storage_6/project_data/pl0252-02/igomar/software/miniforge3/bin/activate ass_old"
+    account: "pl0252-02"
+
+  # MD initialization configuration
+  init:
+    prod_num_frames: 1000
+    prod_config_path: "/mnt/storage_5/scratch/pl0252-02/igomar/assmd_testing_set/prod.in"  # amber config for single production
+    seed_parm_paths: # paths to topology of seed system, either 1xN or NxN
+      - "/mnt/storage_5/scratch/pl0252-02/igomar/assmd_testing_set/seeds/solvent_1/converted_HMR.parm7"
+      - "/mnt/storage_5/scratch/pl0252-02/igomar/assmd_testing_set/seeds/solvent_2/converted_HMR.parm7"
+      - "/mnt/storage_5/scratch/pl0252-02/igomar/assmd_testing_set/seeds/solvent_3/converted_HMR.parm7"
+      - "/mnt/storage_5/scratch/pl0252-02/igomar/assmd_testing_set/seeds/solvent_4/converted_HMR.parm7"
+      - "/mnt/storage_5/scratch/pl0252-02/igomar/assmd_testing_set/seeds/solvent_5/converted_HMR.parm7"
+      - "/mnt/storage_5/scratch/pl0252-02/igomar/assmd_testing_set/seeds/solvent_6/converted_HMR.parm7"
+      - "/mnt/storage_5/scratch/pl0252-02/igomar/assmd_testing_set/seeds/solvent_1/converted_HMR.parm7"
+      - "/mnt/storage_5/scratch/pl0252-02/igomar/assmd_testing_set/seeds/solvent_2/converted_HMR.parm7"
+      - "/mnt/storage_5/scratch/pl0252-02/igomar/assmd_testing_set/seeds/solvent_3/converted_HMR.parm7"
+      - "/mnt/storage_5/scratch/pl0252-02/igomar/assmd_testing_set/seeds/solvent_4/converted_HMR.parm7"
+      - "/mnt/storage_5/scratch/pl0252-02/igomar/assmd_testing_set/seeds/solvent_5/converted_HMR.parm7"
+      - "/mnt/storage_5/scratch/pl0252-02/igomar/assmd_testing_set/seeds/solvent_6/converted_HMR.parm7"
+    seed_paths:     # list of strings paths for rst/inpcrd solvated coordinates of seed(s), either 1 that will be replicatied to N or N
+      - "/mnt/storage_5/scratch/pl0252-02/igomar/assmd_testing_set/seeds/solvent_1/min.rst"
+      - "/mnt/storage_5/scratch/pl0252-02/igomar/assmd_testing_set/seeds/solvent_2/min.rst"
+      - "/mnt/storage_5/scratch/pl0252-02/igomar/assmd_testing_set/seeds/solvent_3/min.rst"
+      - "/mnt/storage_5/scratch/pl0252-02/igomar/assmd_testing_set/seeds/solvent_4/min.rst"
+      - "/mnt/storage_5/scratch/pl0252-02/igomar/assmd_testing_set/seeds/solvent_5/min.rst"
+      - "/mnt/storage_5/scratch/pl0252-02/igomar/assmd_testing_set/seeds/solvent_6/min.rst"
+      - "/mnt/storage_5/scratch/pl0252-02/igomar/assmd_testing_set/seeds/solvent_1/min.rst"
+      - "/mnt/storage_5/scratch/pl0252-02/igomar/assmd_testing_set/seeds/solvent_2/min.rst"
+      - "/mnt/storage_5/scratch/pl0252-02/igomar/assmd_testing_set/seeds/solvent_3/min.rst"
+      - "/mnt/storage_5/scratch/pl0252-02/igomar/assmd_testing_set/seeds/solvent_4/min.rst"
+      - "/mnt/storage_5/scratch/pl0252-02/igomar/assmd_testing_set/seeds/solvent_5/min.rst"
+      - "/mnt/storage_5/scratch/pl0252-02/igomar/assmd_testing_set/seeds/solvent_6/min.rst"
+    pre_epoch_equil: True  # if to do equilibration before each simulation
+    equil_config_path: "/mnt/storage_5/scratch/pl0252-02/igomar/assmd_testing_set/equil.in" # amber config for equilibration
+    pre_epoch_heating: True  # if to do heating before each simulation
+    heating_config_path: "/mnt/storage_5/scratch/pl0252-02/igomar/assmd_testing_set/heating.in" # amber config for heating
+
+  # Adaptive sampling configuration
+  adaptive:
+    num_seeds: 12  # number of init seed, equal to spawners
+    num_epoch: 5   # number of epochs
+    max_concurent: 12  # max running simulations at given time 
+    update_rate: 20  # in seconds, how often to check sim status
+    projection_function: "/mnt/storage_5/scratch/pl0252-02/igomar/assmd1.1/proj_test.py" # path to .py file containing projectTrajectory function
+    do_tica: True  # if needed to do decomposition with tica
+    ticadim: 3      # number of tica dimensions to select
+    ticalag: 1      # lagtime for tica decomposition
+    markov_lag: 1  # lagtime for msm construction
+    num_macro: 12 # number of metastable states to generate, recommended to set to num_seeds
+    #num_micro: 800 - best left for heuristic
