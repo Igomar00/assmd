@@ -241,20 +241,6 @@ def extract_high_probability_indices(memberships, threshold=0.5, ensure_assignme
     
     return result
 
-# Example usage:
-# Assuming M is your memberships matrix
-# 
-# # Get assignment of microstates to macrostates based only on threshold
-# macrostate_assignments = extract_high_probability_indices(M, threshold=0.5)
-# 
-# # Get assignment ensuring each macrostate has at least one microstate
-# macrostate_assignments = extract_high_probability_indices(M, threshold=0.5, ensure_assignment=True)
-# 
-# # Get a list of all microstates assigned to any macrostate and the mapping of macrostates to microstates
-# assigned_list, macrostate_map = get_assigned_microstates(M, threshold=0.5)
-
-# If you want a simple function that just returns the microstate indices
-# without grouping by macrostate:
 def get_assigned_microstates(memberships, threshold=0.5):
     """
     Get all microstate indices that belong to any macrostate with probability >= threshold.
@@ -308,6 +294,64 @@ def getNumMacrostates(config:conf.JobConfig, data, num_micro): #adapted from HTM
     macronum= max(np.sum(timesc > config.adaptive.markov_lag), 2)
     return macronum
 #---------
+
+#WIP
+def processDualModel(config:conf.JobConfig, log_path:str, workspace:fs.AdaptiveWorkplace, submitit_results, epoch_num:int):
+    logging.basicConfig(
+    level=logging.DEBUG,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler(log_path),
+        logging.StreamHandler()])
+    
+    logger=logging.getLogger(__name__)
+
+    os.chdir(config.working_dir)
+    
+    validation_results = validate_simulation_directories(workspace, config, epoch_num, config.init.prod_num_frames, submitit_results)
+    if validation_results["overall_success"]: #redo to act on paths instead of seednum
+        logger.info(f"Result files for epoch {epoch_num} seem alright :D")
+    else:
+        if validation_results["details"]["submitit"]["success"]:
+            logger.critical("Validation of simulation files failed")
+            for sim_dir in validation_results["details"]["simulations"]:
+                if not validation_results["details"]["simulations"][sim_dir]["success"]:
+                    logger.critical(f"in simulation directory: {sim_dir}")
+                    for error in validation_results["details"]["simulations"][sim_dir]["errors"]:
+                        logger.critical(validation_results["details"]["simulations"][sim_dir]["errors"][error])
+        else:
+            logger.critical("Submitit failed for jobs:")
+            for error in validation_results["details"]["submitit"]["errors"]:
+                logger.critical(error)
+        return -1
+    
+    if workspace.check_all_files():
+        logger.critical(f"File integrity fault detected after run of epoch {epoch_num}")
+        return -1
+        
+    with open(workspace.get_files(workspace.get_files_by_tags("projection")).abs_path, 'r') as f:
+        exec(f.read(), globals())
+    
+    with open(workspace.get_files(workspace.get_files_by_tags("projection_dualmodel")).abs_path, 'r') as f:
+        exec(f.read(), globals())
+
+    for i in range(config.adaptive.num_seeds):
+        topo = workspace.get_files(workspace.get_files_by_tags([f"run_epoch_{epoch_num}", f"seed_{i}", "topology"]))
+        crds = workspace.get_files(workspace.get_files_by_tags([f"seed_{i}", f"run_epoch_{epoch_num}", "prod_traj"]))
+        traj = pt.load(crds.abs_path, top=topo.abs_path)
+        projected_traj = projectTrajectory(traj)
+        projected_protein = projectProtein(traj)
+        del traj
+        run_dir = workspace.get_files(workspace.get_files_by_tags([f"run_dir_epoch_{epoch_num}", f"run_seed_{i}"]))
+        arr_path = os.path.join(run_dir.abs_path, "prod_projection.npy")
+        np.save(arr_path, projected_traj, allow_pickle=False)
+        workspace.add_file(arr_path, tags=[f"seed_{i}", f"run_epoch_{epoch_num}","prod_projection"])
+        arr_path = os.path.join(run_dir.abs_path, "prod_projection_protein.npy")
+        np.save(arr_path, projected_protein, allow_pickle=False)
+        workspace.add_file(arr_path, tags=[f"seed_{i}", f"run_epoch_{epoch_num}","prod_projection_protein"])
+    
+    
+
 
 def processSimulations(config:conf.JobConfig, log_path:str, workspace:fs.AdaptiveWorkplace, submitit_results, epoch_num:int):
     logging.basicConfig(
@@ -400,6 +444,14 @@ def processSimulations(config:conf.JobConfig, log_path:str, workspace:fs.Adaptiv
     
     counts = dt.markov.TransitionCountEstimator(lagtime=config.adaptive.markov_lag, count_mode="sliding")
     counts_model = counts.fit_fetch([x[1] for x in microstate_trajs])
+
+    
+    sets = counts_model.connected_sets()
+    submodels_size = [len(x) for x in sets]
+    logger.info("Microstate populations of connected sets:")
+    for x in submodels_size[:5]:
+        logger.info(f"{x} : {x/num_micro * 100}%")
+
     msm = dt.markov.msm.MaximumLikelihoodMSM(allow_disconnected=False, use_lcc=False).fit_fetch(counts_model.submodel_largest())
     coarse_msm = msm.pcca(num_macro) # might fail?
     #print(counts.state_symbols)
@@ -407,9 +459,7 @@ def processSimulations(config:conf.JobConfig, log_path:str, workspace:fs.Adaptiv
     
     logger.info(f"Largest connected submodel contains {micronum} microstates out of {num_micro} indentified")
     logger.debug(f"len of assigment matrix {len(coarse_msm.assignments)}")
-    logger.info("Stationary distribution for metastable states:")
-    logger.info(str(coarse_msm.coarse_grained_stationary_probability))
-    
+
     #calculate respawn weights
     res = np.zeros(num_macro)
     microvalue = np.ones(micronum)
@@ -510,3 +560,45 @@ def processSimulations(config:conf.JobConfig, log_path:str, workspace:fs.Adaptiv
     else:
         logger.info(f"post-processing of epoch {epoch_num} was completed successfuly")
         return workspace
+    
+def validateEpoch(workspace, config, epoch_num, prod_num_frames, submitit_results):
+    logger=logging.getLogger(__name__)
+
+    validation_results = validate_simulation_directories(workspace, config, epoch_num, prod_num_frames, submitit_results)
+    if validation_results["overall_success"]: #redo to act on paths instead of seednum
+        logger.info(f"Result files for epoch {epoch_num} seem alright :D")
+    else:
+        if validation_results["details"]["submitit"]["success"]:
+            logger.critical("Validation of simulation files failed")
+            for sim_dir in validation_results["details"]["simulations"]:
+                if not validation_results["details"]["simulations"][sim_dir]["success"]:
+                    logger.critical(f"in simulation directory: {sim_dir}")
+                    for error in validation_results["details"]["simulations"][sim_dir]["errors"]:
+                        logger.critical(validation_results["details"]["simulations"][sim_dir]["errors"][error])
+        else:
+            logger.critical("Submitit failed for jobs:")
+            for error in validation_results["details"]["submitit"]["errors"]:
+                logger.critical(error)
+        return False
+    
+    if workspace.check_all_files():
+        logger.critical(f"File integrity fault detected after run of epoch {epoch_num}")
+        return False
+
+    return True
+
+def processSimulations(config:conf.JobConfig, log_path:str, workspace:fs.AdaptiveWorkplace, submitit_results, epoch_num:int):
+    logging.basicConfig(
+    level=logging.DEBUG,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler(log_path),
+        logging.StreamHandler()])
+    
+    logger=logging.getLogger(__name__)
+
+    os.chdir(config.working_dir)
+
+    if not validateEpoch(workspace, config, epoch_num, config.init.prod_num_frames, submitit_results):
+        return -1
+

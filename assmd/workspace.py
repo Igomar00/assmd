@@ -66,10 +66,10 @@ def prepare_initial_workspace(config:conf.JobConfig)->fs.AdaptiveWorkplace:
             sys.exit(1)
     os.chdir(config.working_dir)
     workspace = fs.AdaptiveWorkplace(config.working_dir)
-    if len(config.init.seed_paths)!=1 and len(config.init.seed_paths)!=config.adaptive.num_seeds:
+    if len(config.init.seed_paths)!=1 and len(config.init.seed_paths)!=config.general.num_seeds:
         logger.critical("number of seed crd must either be equal to 1 or to adaptive.num_seeds")
         sys.exit(1)
-    if len(config.init.seed_parm_paths)!=len(config.init.seed_paths) and len(config.init.seed_parm_paths):
+    if len(config.init.seed_parm_paths)!=len(config.init.seed_paths):
         logger.critical("Number of topologies and coordinates in not in agreement - cant continue")
         sys.exit(1)
     os.mkdir("epoch_0")

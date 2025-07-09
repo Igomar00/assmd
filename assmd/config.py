@@ -23,20 +23,10 @@ class SlurmConfig(BaseModel):
     account: str
 
 class MDConfig(BaseModel):
-    prod_config_path: str
     seed_parm_paths: List[str] = []
     seed_paths: List[str] = []
-    pre_epoch_heating: bool
-    heating_config_path: Optional[str] = None
-    pre_epoch_equil: bool
-    equil_config_path: Optional[str] = None
-    prod_num_frames: int=Field(ge=1)
 
-class AdaptiveConfig(BaseModel):
-    num_seeds: int = Field(ge=1)
-    num_epoch: int = Field(ge=1)
-    max_concurent: Optional[int] = Field(ge=1)
-    update_rate: Optional[int] = Field(ge=1, default=600)
+class MSMConfig(BaseModel):
     projection_function: str
     do_tica : bool = Field(default=True)
     ticadim : Optional[int] = Field(ge=1)
@@ -44,14 +34,33 @@ class AdaptiveConfig(BaseModel):
     num_macro : Optional[int] = Field(ge=1, default=8)
     num_micro : Optional[int] = Field(ge=-1, default=-1)
     markov_lag: Optional[int] = Field(ge=1, default=1)
+
+class General(BaseModel):
+    prod_config_path: str
+    pre_epoch_heating: bool 
+    heating_config_path: Optional[str] = None 
+    pre_epoch_equil: bool
+    equil_config_path: Optional[str] = None 
+    prod_num_frames: int=Field(ge=1)
+    num_seeds: int = Field(ge=1)
+    num_epoch: int = Field(ge=1)
+    max_concurent: Optional[int] = Field(ge=1)
+    update_rate: Optional[int] = Field(ge=1, default=600)
+
+class AquaDuctSetup(BaseModel):
+    run_aquaduct : bool
+    config_file : str = Field(default=None)
+    post_run_strip_mask: str = Field(default=None)
     
 class JobConfig(BaseModel):
     working_dir: str
     slurm_log_dir: str
+    general: General
     slurm_node: SlurmConfig
     slurm_master: SlurmConfig
     init: MDConfig
-    adaptive: AdaptiveConfig
+    ligand_model: MSMConfig
+    protein_model: Optional[MSMConfig] = Field(default=None)
 
 def loadConfig(config_path: str) -> JobConfig: #Claude Sonnet 3.5
     """
