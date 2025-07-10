@@ -100,11 +100,19 @@ def prepare_initial_workspace(config:conf.JobConfig)->fs.AdaptiveWorkplace:
     workspace.add_file(os.path.join("epoch_0", "seed_assignment.txt"), tags=["info"])
     
     try:
-        shutil.copyfile(config.adaptive.projection_function, os.path.join(config.working_dir, "projection.py"))
+        shutil.copyfile(config.ligand_model.projection_function, os.path.join(config.working_dir, "projection.py"))
     except Exception as e:
         logger.critical(f"cant copy projection function to working dir, {str(e)}")
         sys.exit(1)
     workspace.add_file(os.path.join(config.working_dir, "projection.py"), tags=["projection"])
+
+    if config.aquaduct.run_aquaduct:
+        try:
+            shutil.copyfile(config.aquaduct.config_file, os.path.join(config.working_dir, "aquaduct_config.txt"))
+        except Exception as e:
+            logger.critical(f"cant copy aquaduct_config_file to the working dir")
+            sys.exit(1)
+        workspace.add_file(os.path.join(config.working_dir, "aquaduct_config.txt"), tags=["aqua", "config"])
     
     crds, tops = [], []
     for i in range(config.adaptive.num_seeds):
@@ -123,13 +131,13 @@ def prepare_initial_workspace(config:conf.JobConfig)->fs.AdaptiveWorkplace:
                 tags.add(f"seed_{i}")
                 workspace.add_file(to_register, tags=tags)
     try:
-        shutil.copyfile(config.init.prod_config_path, "prod.in")
+        shutil.copyfile(config.general.prod_config_path, "prod.in")
         workspace.add_file("prod.in", tags="prod_config")
         if config.init.pre_epoch_equil:
-            shutil.copyfile(config.init.equil_config_path, "equil.in")
+            shutil.copyfile(config.general.equil_config_path, "equil.in")
             workspace.add_file("equil.in", tags="equil_config")
         if config.init.pre_epoch_heating:
-            shutil.copyfile(config.init.heating_config_path, "heating.in")
+            shutil.copyfile(config.general.heating_config_path, "heating.in")
             workspace.add_file("heating.in", tags="heating_config")
     except Exception as e:
         logger.critical("unable to copy md config files")
@@ -147,23 +155,26 @@ def prepare_epoch_run(config:conf.JobConfig, workspace:fs.AdaptiveWorkplace, epo
     run_root = f"epoch_{epoch_num}_runs"
     os.mkdir(run_root)
     workspace.add_file(run_root, tags=[f"run_root_epoch_{epoch_num}"])
-    for i in range(config.adaptive.num_seeds):
-        dname = os.path.join(run_root, workspace.files[workspace.get_files_by_tags([f"epoch_{epoch_num-1}_dir", f"seed_dir_{i}"])].filename)
+    for i in range(config.general.num_seeds):
+        dname = os.path.join(run_root, workspace.get_files[workspace.get_files_by_tags([f"epoch_{epoch_num-1}_dir", f"seed_dir_{i}"])].filename)
         os.mkdir(dname)
         print(dname)
         workspace.add_file(dname, tags=[f"run_dir_epoch_{epoch_num}", f"run_seed_{i}"])
-        topo = workspace.files[workspace.get_files_by_tags([f"epoch_{epoch_num-1}", f"seed_{i}", "topology"])]
+        topo = workspace.get_files[workspace.get_files_by_tags([f"epoch_{epoch_num-1}", f"seed_{i}", "topology"])]
         shutil.copy(topo.abs_path, dname)
         workspace.add_file(os.path.join(dname,topo.filename), tags=[f"run_epoch_{epoch_num}", f"seed_{i}", "topology"])
         coords = workspace.get_files(workspace.get_files_by_tags([f"epoch_{epoch_num-1}", f"seed_{i}", "coords"]))
         if isinstance(coords, list): print([x.abs_path for x in coords])
         shutil.copy(coords.abs_path, dname)
         workspace.add_file(os.path.join(dname,coords.filename), tags=[f"run_epoch_{epoch_num}", f"seed_{i}", "coords"])
-        if config.init.pre_epoch_equil:
-            conf = workspace.files[workspace.get_files_by_tags("equil_config")]
+        if config.general.pre_epoch_equil:
+            conf = workspace.get_files[workspace.get_files_by_tags("equil_config")]
             shutil.copy(conf.abs_path, dname)
-        if config.init.pre_epoch_heating:
-            conf = workspace.files[workspace.get_files_by_tags("heating_config")]
+        if config.general.pre_epoch_heating:
+            conf = workspace.get_files[workspace.get_files_by_tags("heating_config")]
+            shutil.copy(conf.abs_path, dname)
+        if config.aquaduct.run_aquaduct:
+            conf = workspace.get_files[workspace.get_files_by_tags(["config", "aqua"])]
             shutil.copy(conf.abs_path, dname)
         conf = workspace.files[workspace.get_files_by_tags("prod_config")]
         shutil.copy(conf.abs_path, dname)

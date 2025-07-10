@@ -11,6 +11,7 @@ import numpy as np
 import deeptime as dt
 import pytraj as pt
 from typing import List, Dict, Tuple
+import multiprocessing as mp
 
 from assmd import file_structure as fs
 from assmd import config as conf
@@ -533,7 +534,7 @@ def processSimulations(config:conf.JobConfig, log_path:str, workspace:fs.Adaptiv
     
     seed_num = 0
     for e in range(1, epoch_num+1):
-        for i in range(config.adaptive.num_seeds):
+        for i in range(config.general.num_seeds):
             respawn_dir = workspace.get_files(workspace.get_files_by_tags([f"run_dir_epoch_{e}", f"run_seed_{i}"]))
             if respawn_dir.abs_path in respawn_by_source_sim:
                 topo = workspace.get_files(workspace.get_files_by_tags([f"run_epoch_{e}", f"seed_{i}", "topology"]))
@@ -587,6 +588,15 @@ def validateEpoch(workspace, config, epoch_num, prod_num_frames, submitit_result
 
     return True
 
+def runAquaduct(config:conf.JobConfig, log_path:str, workspace:fs.AdaptiveWorkplace, epoch_num:int):
+    logger=logging.getLogger(__name__)
+
+    for i in range(config.general.num_seeds):
+        topo = workspace.get_files(workspace.get_files_by_tags([f"run_epoch_{epoch_num}", f"seed_{i}", "topology"]))
+        crds = workspace.get_files(workspace.get_files_by_tags([f"seed_{i}", f"run_epoch_{epoch_num}", "prod_traj"]))
+        
+
+
 def processSimulations(config:conf.JobConfig, log_path:str, workspace:fs.AdaptiveWorkplace, submitit_results, epoch_num:int):
     logging.basicConfig(
     level=logging.DEBUG,
@@ -601,4 +611,7 @@ def processSimulations(config:conf.JobConfig, log_path:str, workspace:fs.Adaptiv
 
     if not validateEpoch(workspace, config, epoch_num, config.init.prod_num_frames, submitit_results):
         return -1
+    
+    if config.aquaduct.run_aquaduct:
+
 

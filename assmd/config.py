@@ -60,7 +60,7 @@ class JobConfig(BaseModel):
     slurm_master: SlurmConfig
     init: MDConfig
     ligand_model: MSMConfig
-    protein_model: Optional[MSMConfig] = Field(default=None)
+    aquaduct: AquaDuctSetup
 
 def loadConfig(config_path: str) -> JobConfig: #Claude Sonnet 3.5
     """

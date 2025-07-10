@@ -90,7 +90,7 @@ def main():
                                     slurm_setup = job_def.slurm_master.setup_commands)
 
 
-    for epoch_num in range(start_epoch, job_def.adaptive.num_epoch+1):
+    for epoch_num in range(start_epoch, job_def.general.num_epoch+1):
         chkpoint = chk.Checkpoint(log_path,job_def, workspace, epoch_num, "presim")
         chkpoint.save()
         job_results = sr.launch_epoch(job_def, workspace, epoch_num)
@@ -103,7 +103,7 @@ def main():
         chkpoint = chk.Checkpoint(log_path,job_def, workspace, epoch_num, "processed")
         chkpoint.save()
         #print(len(workspace.files.keys()))
-        if epoch_num != job_def.adaptive.num_epoch:
+        if epoch_num != job_def.general.num_epoch:
             logger.info(f"preparing run files for epoch {epoch_num+1}")
             ws.prepare_epoch_run(job_def, workspace, epoch_num+1)                
     logger.info("ASSMD COMPLETED WITH HIGH CHANCE OF SUCCESS")
