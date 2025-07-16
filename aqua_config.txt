@@ -1,6 +1,6 @@
 [global]
-top = ../ref.pdb
-trj = filtered.nc
+top = ./topology.parm7
+trj = ./prod_traj.nc
 
 
 [traceable_residues]

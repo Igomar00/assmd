@@ -6,7 +6,7 @@ Created on Thu Mar 27 10:44:02 2025
 @author: igor
 """
 
-import os, shutil, logging, glob
+import os, shutil, logging, glob, subprocess
 import numpy as np
 import deeptime as dt
 import pytraj as pt
@@ -411,7 +411,7 @@ def processSimulations(config:conf.JobConfig, log_path:str, workspace:fs.Adaptiv
             parent_dir = workspace.get_files(workspace.get_files_by_tags([f"run_dir_epoch_{e}", f"run_seed_{i}"])).abs_path
             featurized_trajs.append((parent_dir, array))
    
-    logger.info(f"Loaded {len(featurized_trajs)} timeseries for model construction")
+    
     #if requested do tICA decomposition with given params
     if config.adaptive.do_tica:
         tica = dt.decomposition.TICA(lagtime=config.adaptive.ticalag,
@@ -588,14 +588,65 @@ def validateEpoch(workspace, config, epoch_num, prod_num_frames, submitit_result
 
     return True
 
-def runAquaduct(config:conf.JobConfig, log_path:str, workspace:fs.AdaptiveWorkplace, epoch_num:int):
+def runAquaduct(working_dir:str):
+    os.chdir(working_dir)
+    cmd= ["conda",
+          "run -n aquaduct",
+          "valve.py",
+          "-c", "aquaduct_config.txt",
+          "-t 1",
+        ]
+    try:
+        result = subprocess.run(cmd, check=True, text=True, capture_output=True)
+    except subprocess.CalledProcessError as e:
+        return -1
+    return 0
+
+def prepAquaduct(config:conf.JobConfig, workspace:fs.AdaptiveWorkplace, epoch_num:int):
     logger=logging.getLogger(__name__)
 
+    input_dirs = []
+    for i in range(config.general.num_seeds):
+        #get last epoch directory
+        run_dir = workspace.get_files(workspace.get_files_by_tags([f"run_dir_epoch_{epoch_num}", f"run_seed_{i}"]))
+        input_dirs.append(run_dir.abs_path)
+    with mp.Pool(np.max([config.slurm_master.ncpus-1, 1])) as p:
+        results = p.map(runAquaduct, input_dirs)
+    if np.any([x!=0 for x in results]):
+        failed = input_dirs[results.index(-1)]
+        logger.critical(f"aquaduct failed at least for path: {failed}")
+    else:
+        logger.info(f"aquaduct completed for epoch {epoch_num}")       
+
+def runStrip(topo, traj, mask):
+    working_dir = os.path.pardir(topo.abs_path)
+    os.chdir(working_dir)
+    top = pt.load_topology(topo.abs_path)
+    crd = pt.load(traj.abs_path, top=top)
+    stripped_traj = crd.strip(mask=mask)
+    stripped_parm = top.strip(mask=mask)
+    straj = os.path.join(working_dir, "stripped.nc")
+    sparm = os.path.join(working_dir, "stripped.parm7")
+    pt.save(sparm, stripped_parm)
+    pt.save(straj, stripped_traj)
+    return sparm, straj, topo, traj
+
+def prepStrip(config:conf.JobConfig, workspace:fs.AdaptiveWorkplace, epoch_num:int):
+    logger=logging.getLogger(__name__)
+    #get topos and coords
+    inputs = []
     for i in range(config.general.num_seeds):
         topo = workspace.get_files(workspace.get_files_by_tags([f"run_epoch_{epoch_num}", f"seed_{i}", "topology"]))
-        crds = workspace.get_files(workspace.get_files_by_tags([f"seed_{i}", f"run_epoch_{epoch_num}", "prod_traj"]))
-        
-
+        traj = workspace.get_files(workspace.get_files_by_tags([f"run_epoch_{epoch_num}", f"seed_{i}", "prod_traj"]))
+        inputs.append((topo, traj, config.aquaduct.post_run_strip_mask))
+    with mp.Pool(np.max([config.slurm_master.ncpus-1, 1])) as p:
+        stripped_data = p.map(runStrip, inputs)
+    for paths in stripped_data:
+        workspace.add_file(paths[0], tags=paths[2].tags)
+        workspace.add_file(paths[1], tags=paths[3].tags)
+        workspace.unregister_file(paths[2])
+        workspace.unregister_file(paths[3], remove=True)
+    logger.info(f"Solvent selected by mask {config.aquaduct.post_run_strip_mask} was stripped from the trajectories")
 
 def processSimulations(config:conf.JobConfig, log_path:str, workspace:fs.AdaptiveWorkplace, submitit_results, epoch_num:int):
     logging.basicConfig(
@@ -613,5 +664,77 @@ def processSimulations(config:conf.JobConfig, log_path:str, workspace:fs.Adaptiv
         return -1
     
     if config.aquaduct.run_aquaduct:
+        prepAquaduct(config, workspace, epoch_num)
 
+    if config.aquaduct.post_run_strip_mask != None:
+        prepStrip(config, workspace, epoch_num)
+    
+    #load projection function
+    with open(workspace.get_files(workspace.get_files_by_tags("projection")).abs_path, 'r') as f:
+        exec(f.read(), globals())
+
+    #for each seed in epoch
+    for i in range(config.general.num_seeds):
+            #load prod trajectory (which may be stripped)
+            topo = workspace.get_files(workspace.get_files_by_tags([f"run_epoch_{epoch_num}", f"seed_{i}", "topology"]))
+            crds = workspace.get_files(workspace.get_files_by_tags([f"seed_{i}", f"run_epoch_{epoch_num}", "prod_traj"]))
+            traj = pt.load(crds.abs_path, top=topo.abs_path)
+            #project trajectory
+            projected_traj = projectTrajectory(traj)
+            del traj
+            #save timeseries
+            run_dir = workspace.get_files(workspace.get_files_by_tags([f"run_dir_epoch_{epoch_num}", f"run_seed_{i}"]))
+            arr_path = os.path.join(run_dir.abs_path, "prod_projection.npy")
+            np.save(arr_path, projected_traj, allow_pickle=False)
+            workspace.add_file(arr_path, tags=[f"seed_{i}", f"run_epoch_{epoch_num}","prod_projection"])
+    
+    logger.info(f"Success in projection of epoch {epoch_num} trajectories")
+    #load all projections
+    featurized_trajs = []
+    for e in range(1, epoch_num+1):
+        for i in range(config.general.num_seeds):
+            arr_path = workspace.get_files(workspace.get_files_by_tags([f"seed_{i}", f"run_epoch_{e}","prod_projection"]))
+            array = np.load(arr_path.abs_path)
+            parent_dir = workspace.get_files(workspace.get_files_by_tags([f"run_dir_epoch_{e}", f"run_seed_{i}"])).abs_path
+            featurized_trajs.append((parent_dir, array))
+    logger.info(f"Loaded {len(featurized_trajs)} timeseries for model construction")
+
+    if config.ligand_model.do_tica:
+        tica = dt.decomposition.TICA(lagtime=config.ligand_model.ticalag, var_cutoff=0.95)
+        processed_trajs = tica.fit_transform([x[1] for x in featurized_trajs])
+        processed_trajs = [(x[0], y) for x,y in zip(featurized_trajs, processed_trajs)]
+        logger.info(f"tICA with lagtime {config.ligand_model.ticalag} and {tica.dim} dims explained {tica.fetch_model().cumulative_kinetic_variance}")
+    
+    #microstate clustering with kmeansminibatch
+    concatenated_trajs = np.concatenate([x[1] for x in processed_trajs])
+    if config.ligand_model.num_micro==-1:
+        num_micro = getNumMicrostates(np.shape(concatenated_trajs)[0])
+    else:
+        num_micro = config.adaptive.num_micro
+    
+    clusterer = dt.clustering.MiniBatchKMeans(num_micro, n_jobs=config.slurm_master.ncpus)
+    logger.info(f"Discretized trajectories into {num_micro} microstates")
+    concatenated_microstates = clusterer.fit_transform(concatenated_trajs)
+    microstate_trajs = []
+    lastpos = 0
+    for traj in processed_trajs:
+        fpos = lastpos + len(traj[1])
+        microstate_trajs.append((traj[0], concatenated_microstates[lastpos:fpos]))
+        lastpos = fpos
+    num_macro = getNumMacrostates(config, [x[1] for x in microstate_trajs], num_micro)
+    logger.info(f"Building MSM with {num_macro} metastable states")
+
+    counts = dt.markov.TransitionCountEstimator(lagtime=config.ligand_model.markov_lag, count_mode="sliding")
+    counts_model = counts.fit_fetch([x[1] for x in microstate_trajs])
+    sets = counts_model.connected_sets()
+    submodels_size = [len(x) for x in sets]
+    logger.info("Microstate populations of connected sets:")
+    for x in submodels_size:
+        if x/num_micro * 100 > 5.0:
+            logger.info(f"{x} : {x/num_micro * 100}%")
+        else: 
+    
+    msm = dt.markov.msm.MaximumLikelihoodMSM(allow_disconnected=False, use_lcc=False).fit_fetch(counts_model.submodel_largest())
+
+    
 
