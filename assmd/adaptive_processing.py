@@ -292,7 +292,7 @@ def getNumMacrostates(config:conf.JobConfig, data, num_micro): #adapted from HTM
     model = dt.markov.msm.MaximumLikelihoodMSM(allow_disconnected=False, use_lcc=False).fit_fetch(counts.submodel_largest())
     its_data = dt.util.validation.implied_timescales(model, n_its=macronum)
     timesc= its_data._its
-    macronum= max(np.sum(timesc > config.adaptive.markov_lag), 2)
+    macronum= min(np.sum(timesc > config.adaptive.markov_lag), config.general.num_seeds)
     return macronum
 #---------
 
@@ -721,8 +721,7 @@ def processSimulations(config:conf.JobConfig, log_path:str, workspace:fs.Adaptiv
         fpos = lastpos + len(traj[1])
         microstate_trajs.append((traj[0], concatenated_microstates[lastpos:fpos]))
         lastpos = fpos
-    num_macro = getNumMacrostates(config, [x[1] for x in microstate_trajs], num_micro)
-    logger.info(f"Building MSM with {num_macro} metastable states")
+    
 
     counts = dt.markov.TransitionCountEstimator(lagtime=config.ligand_model.markov_lag, count_mode="sliding")
     counts_model = counts.fit_fetch([x[1] for x in microstate_trajs])
@@ -735,6 +734,38 @@ def processSimulations(config:conf.JobConfig, log_path:str, workspace:fs.Adaptiv
         else: 
     
     msm = dt.markov.msm.MaximumLikelihoodMSM(allow_disconnected=False, use_lcc=False).fit_fetch(counts_model.submodel_largest())
+    num_macro = getNumMacrostates(config, [x[1] for x in microstate_trajs], num_micro)
+    logger.info(f"Building MSM with {num_macro} metastable states")
+    coarse_msm = msm.pcca(num_macro)
+    micronum = len(msm.count_model.state_symbols)
+
+    logger.info(f"Largest connected submodel contains {micronum} microstates out of {num_micro} indentified")
+    logger.debug(f"len of assigment matrix {len(coarse_msm.assignments)}")
+
+    res = np.zeros(num_macro)   
+    microvalue = np.ones(micronum)
+    micro_mult = np.zeros(micronum)
+    for i in range(len(microvalue)):
+        macro = coarse_msm.assignments[i]
+        membership_value = coarse_msm.memberships[i][macro]
+        res[macro] = res[macro] + microvalue[i]
+        micro_mult[i] = membership_value
+
+    nMicroPerMacro = res
+    N = np.zeros(num_micro)
+    for frame in concatenated_microstates:
+        N[frame]=N[frame]+1
+    microvalue = N[msm.count_model.state_symbols]*micro_mult[msm.count_model.state_symbols]
+    res = np.zeros(num_macro)
+    for i in range(len(microvalue)):
+        macro = coarse_msm.assignments[i]
+        res[macro] = res[macro] + microvalue[i]
+    p_i = 1/res
+    p_i = p_i/nMicroPerMacro
+    respawn_weights = p_i[coarse_msm.assignments]
+
+    labeled_statelist = []
+
 
     
 
