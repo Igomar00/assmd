@@ -56,7 +56,7 @@ class General(BaseModel):
 class AquaDuctSetup(BaseModel):
     run_aquaduct: bool
     config_file: str = Field(default=None)
-    post_run_strip_mask: str = Field(default=None)
+    post_run_strip_mask: Optional[str] = Field(default=None)
 
 
 class JobConfig(BaseModel):

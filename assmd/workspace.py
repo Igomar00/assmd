@@ -16,6 +16,7 @@ from assmd import config as conf
 
 
 def test_coords_and_project(tops, crds, proj_function):
+    projectTrajectory = None
     logger = logging.getLogger(__name__)
     try:
         with open(proj_function, "r") as f:

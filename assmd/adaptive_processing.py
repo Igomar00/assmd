@@ -6,7 +6,12 @@ Created on Thu Mar 27 10:44:02 2025
 @author: igor
 """
 
-import os, shutil, logging, glob, subprocess
+import os
+import shutil
+import logging
+import glob
+import subprocess
+import pickle
 import numpy as np
 import deeptime as dt
 import pytraj as pt
@@ -15,7 +20,6 @@ import multiprocessing as mp
 
 from assmd import file_structure as fs
 from assmd import config as conf
-from assmd import sim_runner as sr
 
 
 def check_submitit_output(
@@ -329,100 +333,6 @@ def getNumMacrostates(config: conf.JobConfig, data, num_micro):  # adapted from 
         np.sum(timesc > config.adaptive.markov_lag), config.general.num_seeds
     )
     return macronum
-
-
-# ---------
-
-
-# WIP
-def processDualModel(
-    config: conf.JobConfig,
-    log_path: str,
-    workspace: fs.AdaptiveWorkplace,
-    submitit_results,
-    epoch_num: int,
-):
-    logging.basicConfig(
-        level=logging.DEBUG,
-        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-        handlers=[logging.FileHandler(log_path), logging.StreamHandler()],
-    )
-
-    logger = logging.getLogger(__name__)
-
-    os.chdir(config.working_dir)
-
-    validation_results = validate_simulation_directories(
-        workspace, config, epoch_num, config.init.prod_num_frames, submitit_results
-    )
-    if validation_results["overall_success"]:  # redo to act on paths instead of seednum
-        logger.info(f"Result files for epoch {epoch_num} seem alright :D")
-    else:
-        if validation_results["details"]["submitit"]["success"]:
-            logger.critical("Validation of simulation files failed")
-            for sim_dir in validation_results["details"]["simulations"]:
-                if not validation_results["details"]["simulations"][sim_dir]["success"]:
-                    logger.critical(f"in simulation directory: {sim_dir}")
-                    for error in validation_results["details"]["simulations"][sim_dir][
-                        "errors"
-                    ]:
-                        logger.critical(
-                            validation_results["details"]["simulations"][sim_dir][
-                                "errors"
-                            ][error]
-                        )
-        else:
-            logger.critical("Submitit failed for jobs:")
-            for error in validation_results["details"]["submitit"]["errors"]:
-                logger.critical(error)
-        return -1
-
-    if workspace.check_all_files():
-        logger.critical(f"File integrity fault detected after run of epoch {epoch_num}")
-        return -1
-
-    with open(
-        workspace.get_files(workspace.get_files_by_tags("projection")).abs_path, "r"
-    ) as f:
-        exec(f.read(), globals())
-
-    with open(
-        workspace.get_files(
-            workspace.get_files_by_tags("projection_dualmodel")
-        ).abs_path,
-        "r",
-    ) as f:
-        exec(f.read(), globals())
-
-    for i in range(config.adaptive.num_seeds):
-        topo = workspace.get_files(
-            workspace.get_files_by_tags(
-                [f"run_epoch_{epoch_num}", f"seed_{i}", "topology"]
-            )
-        )
-        crds = workspace.get_files(
-            workspace.get_files_by_tags(
-                [f"seed_{i}", f"run_epoch_{epoch_num}", "prod_traj"]
-            )
-        )
-        traj = pt.load(crds.abs_path, top=topo.abs_path)
-        projected_traj = projectTrajectory(traj)
-        projected_protein = projectProtein(traj)
-        del traj
-        run_dir = workspace.get_files(
-            workspace.get_files_by_tags([f"run_dir_epoch_{epoch_num}", f"run_seed_{i}"])
-        )
-        arr_path = os.path.join(run_dir.abs_path, "prod_projection.npy")
-        np.save(arr_path, projected_traj, allow_pickle=False)
-        workspace.add_file(
-            arr_path, tags=[f"seed_{i}", f"run_epoch_{epoch_num}", "prod_projection"]
-        )
-        arr_path = os.path.join(run_dir.abs_path, "prod_projection_protein.npy")
-        np.save(arr_path, projected_protein, allow_pickle=False)
-        workspace.add_file(
-            arr_path,
-            tags=[f"seed_{i}", f"run_epoch_{epoch_num}", "prod_projection_protein"],
-        )
 
 
 def processSimulations(
@@ -851,6 +761,20 @@ def tmpProteinProjection(traj):
     return combined
 
 
+def uniq_sort(array):
+    n = array.shape[0]
+    if n == 1:
+        return np.array([0])
+    if n == 0:
+        return np.array([])
+    diff = array[:, None, :] - array[None, :, :]
+    dist_matrix = np.linalg.norm(diff, axis=-1)
+    np.fill_diagonal(dist_matrix, 0)
+    avg_distances = np.sum(dist_matrix, axis=1) / (n - 1)
+    sorted_idx = np.argsort(avg_distances)[::-1]
+    return sorted_idx
+
+
 def processSimulations(
     config: conf.JobConfig,
     log_path: str,
@@ -865,7 +789,7 @@ def processSimulations(
     )
 
     logger = logging.getLogger(__name__)
-
+    projectTrajectory = None
     os.chdir(config.working_dir)
 
     if not validateEpoch(
@@ -901,6 +825,8 @@ def processSimulations(
         traj = pt.load(crds.abs_path, top=topo.abs_path)
         # project trajectory
         projected_traj = projectTrajectory(traj)
+        protein_dih_projection = tmpProteinProjection(traj)
+
         del traj
         # save timeseries
         run_dir = workspace.get_files(
@@ -911,10 +837,17 @@ def processSimulations(
         workspace.add_file(
             arr_path, tags=[f"seed_{i}", f"run_epoch_{epoch_num}", "prod_projection"]
         )
+        arr_path = os.path.join(run_dir.abs_path, "dihedrals.npy")
+        np.save(arr_path, protein_dih_projection, allow_pickle=False)
+        workspace.add_file(
+            arr_path,
+            tags=[f"seed_{i}", f"run_epoch_{epoch_num}", "dihedral_projection"],
+        )
 
     logger.info(f"Success in projection of epoch {epoch_num} trajectories")
-    # load all projections
+    # load all projections and also dihedral projection
     featurized_trajs = []
+    dihedral_trajs = {}
     for e in range(1, epoch_num + 1):
         for i in range(config.general.num_seeds):
             arr_path = workspace.get_files(
@@ -927,6 +860,13 @@ def processSimulations(
                 workspace.get_files_by_tags([f"run_dir_epoch_{e}", f"run_seed_{i}"])
             ).abs_path
             featurized_trajs.append((parent_dir, array))
+            arr_path = workspace.get_files(
+                workspace.get_files_by_tags(
+                    [f"seed_{i}", f"run_epoch_{e}", "dihedral_projection"]
+                )
+            )
+            array = np.load(arr_path.abs_path)
+            dihedral_trajs[parent_dir] = array
     logger.info(f"Loaded {len(featurized_trajs)} timeseries for model construction")
 
     if config.ligand_model.do_tica:
@@ -973,10 +913,19 @@ def processSimulations(
     msm = dt.markov.msm.MaximumLikelihoodMSM(
         allow_disconnected=False, use_lcc=False
     ).fit_fetch(counts_model.submodel_largest())
+    # dump msm to pickle, no need to register
+    dump_path = os.path.join(config.working_dir, f"epoch_{epoch_num}_MSM.dump")
+    with open(dump_path, "wb") as fh:
+        pickle.dump(msm, fh)
+
     num_macro = getNumMacrostates(config, [x[1] for x in microstate_trajs], num_micro)
     logger.info(f"Building MSM with {num_macro} metastable states")
     coarse_msm = msm.pcca(num_macro)
     micronum = len(msm.count_model.state_symbols)
+    # dump msm coarse to pickle, no need to register
+    dump_path = os.path.join(config.working_dir, f"epoch_{epoch_num}_coarse_MSM.dump")
+    with open(dump_path, "wb") as fh:
+        pickle.dump(coarse_msm, fh)
 
     logger.info(
         f"Largest connected submodel contains {micronum} microstates out of {num_micro} indentified"
@@ -990,6 +939,7 @@ def processSimulations(
         macro = coarse_msm.assignments[i]
         membership_value = coarse_msm.memberships[i][macro]
         res[macro] = res[macro] + microvalue[i]
+        # discriminate agains poorly defined microstates
         micro_mult[i] = membership_value
 
     nMicroPerMacro = res
@@ -1003,8 +953,65 @@ def processSimulations(
     for i in range(len(microvalue)):
         macro = coarse_msm.assignments[i]
         res[macro] = res[macro] + microvalue[i]
-    p_i = 1 / res
+    try:
+        p_i = 1 / res
+    except ZeroDivisionError:
+        p_i = 1 / (res + 0.000001)
+
     p_i = p_i / nMicroPerMacro
     respawn_weights = p_i[coarse_msm.assignments]
 
     labeled_statelist = []
+    for traj in microstate_trajs:
+        # (source, microstate, frame IS 0-indexed)
+        labeled_statelist += [(traj[0], x, i) for i, x in enumerate(traj[1])]
+
+    # restrict microstates to active set??
+
+    # get spawn frames
+
+    # possibly mapping of spawncounts to original microstate labels might be necessary
+    active_set = msm.count_model.state_symbols
+    memberships = coarse_msm.memberships
+    logger.debug(f"memberships array: {np.shape(memberships)}")
+    logger.info(
+        f"reducing active set with {len(active_set)} microstates to core set with threshold of 0.5"
+    )
+    core_idx = get_assigned_microstates(memberships)[0]
+    core_set = active_set[core_idx]
+    prob = respawn_weights / np.sum(respawn_weights)
+    core_prob = prob[core_idx]
+    spawncounts = np.random.multinomial(config.adaptive.num_seeds, core_prob)
+    logger.info(f"resulting core set has {len(core_set)}")
+    spawncounts_mapped = np.zeros(num_micro)
+    spawncounts_mapped[core_set] = spawncounts
+    assignments_mapped = np.ones(num_micro) * -1
+    assignments_mapped[core_set] = coarse_msm.assignments[core_idx]
+
+    frame_selection = []
+    # list to be populated by (source, microstate, frame 0-indexed )
+    stateidx = np.where(spawncounts_mapped > 0)[0]
+    logger.info("Selecting respawn frames:")
+    for state in stateidx:
+        to_sample = int(spawncounts_mapped[state])
+        selected_tuples = np.random.choice(
+            np.where(concatenated_microstates == state)[0], size=to_sample, replace=True
+        )
+        for sel in selected_tuples:
+            frame_selection.append(labeled_statelist[sel])
+            logger.info(
+                f"Selected frame {labeled_statelist[sel][2]} from simulation {labeled_statelist[sel][0]}"
+            )
+            logger.info(
+                f"representing microstate {labeled_statelist[sel][1]} assigned to macrostate {assignments_mapped[labeled_statelist[sel][1]]}"
+            )
+
+        microstate_tuples_idx = np.where(concatenated_microstates == state)[0]
+        microstate_tuples = [labeled_statelist[x] for x in microstate_tuples_idx]
+        dihedral_data = []
+        for tup in microstate_tuples:
+            dihs = dihedral_trajs[tup[0]][tup[2]]
+            dihedral_data.append(dihs)
+        dihedral_data = np.row_stack(dihedral_data)
+        uniq_sorted_idx = uniq_sort(dihedral_data)
+        selected_idx = uniq_sorted_idx[:to_sample]
