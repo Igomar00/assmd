@@ -335,303 +335,6 @@ def getNumMacrostates(config: conf.JobConfig, data, num_micro):  # adapted from 
     return macronum
 
 
-def processSimulations(
-    config: conf.JobConfig,
-    log_path: str,
-    workspace: fs.AdaptiveWorkplace,
-    submitit_results,
-    epoch_num: int,
-):
-    logging.basicConfig(
-        level=logging.DEBUG,
-        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-        handlers=[logging.FileHandler(log_path), logging.StreamHandler()],
-    )
-
-    logger = logging.getLogger(__name__)
-
-    os.chdir(config.working_dir)
-
-    validation_results = validate_simulation_directories(
-        workspace, config, epoch_num, config.init.prod_num_frames, submitit_results
-    )
-    if validation_results["overall_success"]:  # redo to act on paths instead of seednum
-        logger.info(f"Result files for epoch {epoch_num} seem alright :D")
-    else:
-        if validation_results["details"]["submitit"]["success"]:
-            logger.critical("Validation of simulation files failed")
-            for sim_dir in validation_results["details"]["simulations"]:
-                if not validation_results["details"]["simulations"][sim_dir]["success"]:
-                    logger.critical(f"in simulation directory: {sim_dir}")
-                    for error in validation_results["details"]["simulations"][sim_dir][
-                        "errors"
-                    ]:
-                        logger.critical(
-                            validation_results["details"]["simulations"][sim_dir][
-                                "errors"
-                            ][error]
-                        )
-        else:
-            logger.critical("Submitit failed for jobs:")
-            for error in validation_results["details"]["submitit"]["errors"]:
-                logger.critical(error)
-        return -1
-
-    if workspace.check_all_files():
-        logger.critical(f"File integrity fault detected after run of epoch {epoch_num}")
-        return -1
-
-    with open(
-        workspace.get_files(workspace.get_files_by_tags("projection")).abs_path, "r"
-    ) as f:
-        exec(f.read(), globals())
-
-    for i in range(config.adaptive.num_seeds):
-        topo = workspace.get_files(
-            workspace.get_files_by_tags(
-                [f"run_epoch_{epoch_num}", f"seed_{i}", "topology"]
-            )
-        )
-        crds = workspace.get_files(
-            workspace.get_files_by_tags(
-                [f"seed_{i}", f"run_epoch_{epoch_num}", "prod_traj"]
-            )
-        )
-        traj = pt.load(crds.abs_path, top=topo.abs_path)
-        projected_traj = projectTrajectory(traj)
-        del traj
-        run_dir = workspace.get_files(
-            workspace.get_files_by_tags([f"run_dir_epoch_{epoch_num}", f"run_seed_{i}"])
-        )
-        arr_path = os.path.join(run_dir.abs_path, "prod_projection.npy")
-        np.save(arr_path, projected_traj, allow_pickle=False)
-        workspace.add_file(
-            arr_path, tags=[f"seed_{i}", f"run_epoch_{epoch_num}", "prod_projection"]
-        )
-
-    logger.info(f"Success in projection of epoch {epoch_num} trajectories")
-    # load all projections
-    featurized_trajs = []
-    for e in range(1, epoch_num + 1):
-        for i in range(config.adaptive.num_seeds):
-            arr_path = workspace.get_files(
-                workspace.get_files_by_tags(
-                    [f"seed_{i}", f"run_epoch_{e}", "prod_projection"]
-                )
-            )
-            array = np.load(arr_path.abs_path)
-            parent_dir = workspace.get_files(
-                workspace.get_files_by_tags([f"run_dir_epoch_{e}", f"run_seed_{i}"])
-            ).abs_path
-            featurized_trajs.append((parent_dir, array))
-
-    # if requested do tICA decomposition with given params
-    if config.adaptive.do_tica:
-        tica = dt.decomposition.TICA(
-            lagtime=config.adaptive.ticalag, dim=config.adaptive.ticadim
-        )
-        processed_trajs = tica.fit_transform([x[1] for x in featurized_trajs])
-        processed_trajs = [(x[0], y) for x, y in zip(featurized_trajs, processed_trajs)]
-        logger.info(
-            f"tICA with lagtime {config.adaptive.ticalag} and {config.adaptive.ticadim} dims explained {tica.fetch_model().cumulative_kinetic_variance}"
-        )
-    else:
-        processed_trajs = featurized_trajs
-
-    # microstate clustering with kmeansminibatch
-    concatenated_trajs = np.concatenate([x[1] for x in processed_trajs])
-    if config.adaptive.num_micro == -1:
-        num_micro = getNumMicrostates(np.shape(concatenated_trajs)[0])
-    else:
-        num_micro = config.adaptive.num_micro
-
-    clusterer = dt.clustering.MiniBatchKMeans(
-        num_micro, n_jobs=config.slurm_master.ncpus
-    )
-    logger.info(f"Discretized trajectories into {num_micro} microstates")
-    concatenated_microstates = clusterer.fit_transform(concatenated_trajs)
-    microstate_trajs = []
-    lastpos = 0
-    for traj in processed_trajs:
-        fpos = lastpos + len(traj[1])
-        microstate_trajs.append((traj[0], concatenated_microstates[lastpos:fpos]))
-        lastpos = fpos
-    num_macro = getNumMacrostates(config, [x[1] for x in microstate_trajs], num_micro)
-    logger.info(f"Building MSM with {num_macro} metastable states")
-
-    # BELOW CODE WORKS ONLY FOR LARGEST CONNECTED SUBSET OF MSM!! - actually might fail if in case of disconnected markov
-
-    counts = dt.markov.TransitionCountEstimator(
-        lagtime=config.adaptive.markov_lag, count_mode="sliding"
-    )
-    counts_model = counts.fit_fetch([x[1] for x in microstate_trajs])
-
-    sets = counts_model.connected_sets()
-    submodels_size = [len(x) for x in sets]
-    logger.info("Microstate populations of connected sets:")
-    for x in submodels_size[:5]:
-        logger.info(f"{x} : {x/num_micro * 100}%")
-
-    msm = dt.markov.msm.MaximumLikelihoodMSM(
-        allow_disconnected=False, use_lcc=False
-    ).fit_fetch(counts_model.submodel_largest())
-    coarse_msm = msm.pcca(num_macro)  # might fail?
-    # print(counts.state_symbols)
-    micronum = len(
-        msm.count_model.state_symbols
-    )  # how many uniq microstates were used in final model
-
-    logger.info(
-        f"Largest connected submodel contains {micronum} microstates out of {num_micro} indentified"
-    )
-    logger.debug(f"len of assigment matrix {len(coarse_msm.assignments)}")
-
-    # calculate respawn weights
-    res = np.zeros(num_macro)
-    microvalue = np.ones(micronum)
-    for i in range(len(microvalue)):
-        macro = coarse_msm.assignments[
-            i
-        ]  # this will probably fail with disconected markov - jeśli deeptime nie jest retarded to nie powinno
-        res[macro] = res[macro] + microvalue[i]
-    nMicroPerMacro = res
-
-    # get number of frames in each cluster
-    N = np.zeros(num_micro)
-    for frame in concatenated_microstates:
-        N[frame] = N[frame] + 1
-    # restrict it to active set
-    microvalue = N[msm.count_model.state_symbols]
-    res = np.zeros(num_macro)
-    for i in range(len(microvalue)):
-        macro = coarse_msm.assignments[i]
-        res[macro] = res[macro] + microvalue[i]
-    p_i = 1 / res
-    p_i = p_i / nMicroPerMacro
-    respawn_weights = p_i[coarse_msm.assignments]
-
-    labeled_statelist = []
-    for traj in microstate_trajs:
-        # (source, microstate, frame)
-        labeled_statelist += [(traj[0], x, i) for i, x in enumerate(traj[1])]
-
-    # restrict microstates to active set??
-
-    # get spawn frames
-
-    # possibly mapping of spawncounts to original microstate labels might be necessary
-    active_set = msm.count_model.state_symbols
-
-    memberships = coarse_msm.memberships
-    logger.debug(f"memberships array: {np.shape(memberships)}")
-    logger.info(
-        f"reducing active set with {len(active_set)} microstates to core set with threshold of 0.5"
-    )
-    core_idx = get_assigned_microstates(memberships)[0]
-    core_set = active_set[core_idx]
-    prob = respawn_weights / np.sum(respawn_weights)
-    core_prob = prob[core_idx]
-    spawncounts = np.random.multinomial(config.adaptive.num_seeds, core_prob)
-    logger.info(f"resulting core set has {len(core_set)}")
-    spawncounts_mapped = np.zeros(num_micro)
-    spawncounts_mapped[core_set] = spawncounts
-    assignments_mapped = np.ones(num_micro) * -1
-    assignments_mapped[core_set] = coarse_msm.assignments[
-        core_idx
-    ]  # assigment is not aligned
-
-    frame_selection = []  # list to be populated by (source, microstate, frame)
-    stateidx = np.where(spawncounts_mapped > 0)[0]
-    logger.info("Selecting respawn frames:")
-    for state in stateidx:
-        to_sample = int(spawncounts_mapped[state])
-        selected_tuples = np.random.choice(
-            np.where(concatenated_microstates == state)[0], size=to_sample, replace=True
-        )
-        for sel in selected_tuples:
-            frame_selection.append(labeled_statelist[sel])
-            logger.info(
-                f"Selected frame {labeled_statelist[sel][2]} from simulation {labeled_statelist[sel][0]}"
-            )
-            logger.info(
-                f"representing microstate {labeled_statelist[sel][1]} assigned to macrostate {assignments_mapped[labeled_statelist[sel][1]]}"
-            )
-
-    # prepare submit respawn dir
-    respawn_by_source_sim = {}
-    for frame in frame_selection:
-        if frame[0] not in respawn_by_source_sim:
-            respawn_by_source_sim[frame[0]] = []
-        respawn_by_source_sim[frame[0]].append(frame)
-
-    os.chdir(config.working_dir)
-    respawn_root = f"epoch_{epoch_num}_respawn"
-    os.mkdir(respawn_root)
-    workspace.add_file(respawn_root, tags=[f"epoch_{epoch_num}", "init_dir"])
-
-    seed_num = 0
-    for e in range(1, epoch_num + 1):
-        for i in range(config.general.num_seeds):
-            respawn_dir = workspace.get_files(
-                workspace.get_files_by_tags([f"run_dir_epoch_{e}", f"run_seed_{i}"])
-            )
-            if respawn_dir.abs_path in respawn_by_source_sim:
-                topo = workspace.get_files(
-                    workspace.get_files_by_tags(
-                        [f"run_epoch_{e}", f"seed_{i}", "topology"]
-                    )
-                )
-                traj = workspace.get_files(
-                    workspace.get_files_by_tags(
-                        [f"run_epoch_{e}", f"seed_{i}", "prod_traj"]
-                    )
-                )
-                loaded = pt.load(traj.abs_path, top=topo.abs_path)
-                for frame in respawn_by_source_sim[respawn_dir.abs_path]:
-                    print(frame)
-                    core_name = (
-                        respawn_dir.filename.split("_")[0]
-                        + respawn_dir.filename.split("_")[-1]
-                    )
-                    dir_name = "_".join(
-                        [
-                            f"e{epoch_num+1}s{seed_num}",
-                            core_name,
-                            f"f{frame[2]}m{frame[1]}",
-                        ]
-                    )
-                    dir_path = os.path.join(respawn_root, dir_name)
-                    os.mkdir(dir_path)
-                    workspace.add_file(
-                        dir_path,
-                        tags=[f"epoch_{epoch_num}_dir", f"seed_dir_{seed_num}"],
-                    )
-                    shutil.copy(topo.abs_path, dir_path)
-                    workspace.add_file(
-                        os.path.join(dir_path, topo.filename),
-                        tags=["topology", f"seed_{seed_num}", f"epoch_{epoch_num}"],
-                    )
-                    crd_path = os.path.join(dir_path, "selected_respawn.rst")
-                    pt.write_traj(crd_path, loaded, frame_indices=[frame[2]])
-                    shutil.move(
-                        os.path.join(dir_path, "selected_respawn.rst.1"), crd_path
-                    )
-                    workspace.add_file(
-                        crd_path,
-                        tags=[f"seed_{seed_num}", "coords", f"epoch_{epoch_num}"],
-                    )
-                    seed_num += 1
-
-    if workspace.check_all_files():
-        logger.critical(
-            f"File incosistencies after seed preparation after run of epoch {epoch_num}"
-        )
-        return -1
-    else:
-        logger.info(f"post-processing of epoch {epoch_num} was completed successfuly")
-        return workspace
-
-
 def validateEpoch(workspace, config, epoch_num, prod_num_frames, submitit_results):
     logger = logging.getLogger(__name__)
 
@@ -884,7 +587,7 @@ def processSimulations(
     if config.ligand_model.num_micro == -1:
         num_micro = getNumMicrostates(np.shape(concatenated_trajs)[0])
     else:
-        num_micro = config.adaptive.num_micro
+        num_micro = config.ligand_model.num_micro
 
     clusterer = dt.clustering.MiniBatchKMeans(
         num_micro, n_jobs=config.slurm_master.ncpus
@@ -994,18 +697,6 @@ def processSimulations(
     logger.info("Selecting respawn frames:")
     for state in stateidx:
         to_sample = int(spawncounts_mapped[state])
-        selected_tuples = np.random.choice(
-            np.where(concatenated_microstates == state)[0], size=to_sample, replace=True
-        )
-        for sel in selected_tuples:
-            frame_selection.append(labeled_statelist[sel])
-            logger.info(
-                f"Selected frame {labeled_statelist[sel][2]} from simulation {labeled_statelist[sel][0]}"
-            )
-            logger.info(
-                f"representing microstate {labeled_statelist[sel][1]} assigned to macrostate {assignments_mapped[labeled_statelist[sel][1]]}"
-            )
-
         microstate_tuples_idx = np.where(concatenated_microstates == state)[0]
         microstate_tuples = [labeled_statelist[x] for x in microstate_tuples_idx]
         dihedral_data = []
@@ -1014,4 +705,92 @@ def processSimulations(
             dihedral_data.append(dihs)
         dihedral_data = np.row_stack(dihedral_data)
         uniq_sorted_idx = uniq_sort(dihedral_data)
-        selected_idx = uniq_sorted_idx[:to_sample]
+        if len(uniq_sorted_idx) >= to_sample:
+            selected_idx = uniq_sorted_idx[:to_sample]
+        else:
+            logger.info(
+                f"population of microstate {state} is too small to cover given respawn value, respawn conformation will repeat"
+            )
+            mult = np.ceil((to_sample / len(uniq_sorted_idx)))
+            uniq_sorted_idx_mult = uniq_sorted_idx * mult
+            selected_idx = uniq_sorted_idx_mult[:to_sample]
+        for idx in selected_idx:
+            frame = microstate_tuples[idx]
+            logger.info(f"Selected frame {frame[2]} from simulation {frame[0]}")
+            logger.info(
+                f"representing microstate {frame[1]} assigned to macrostate {assignments_mapped[frame[1]]}"
+            )
+            frame_selection.append(frame)
+
+    respawn_by_source_sim = {}
+    for frame in frame_selection:
+        if frame[0] not in respawn_by_source_sim:
+            respawn_by_source_sim[frame[0]] = []
+        respawn_by_source_sim[frame[0]].append(frame)
+
+    os.chdir(config.working_dir)
+    respawn_root = f"epoch_{epoch_num}_respawn"
+    os.mkdir(respawn_root)
+    workspace.add_file(respawn_root, tags=[f"epoch_{epoch_num}", "init_dir"])
+
+    seed_num = 0
+    for e in range(1, epoch_num + 1):
+        for i in range(config.general.num_seeds):
+            respawn_dir = workspace.get_files(
+                workspace.get_files_by_tags([f"run_dir_epoch_{e}", f"run_seed_{i}"])
+            )
+            if respawn_dir.abs_path in respawn_by_source_sim:
+                topo = workspace.get_files(
+                    workspace.get_files_by_tags(
+                        [f"run_epoch_{e}", f"seed_{i}", "topology"]
+                    )
+                )
+                traj = workspace.get_files(
+                    workspace.get_files_by_tags(
+                        [f"run_epoch_{e}", f"seed_{i}", "prod_traj"]
+                    )
+                )
+                loaded = pt.load(traj.abs_path, top=topo.abs_path)
+                for frame in respawn_by_source_sim[respawn_dir.abs_path]:
+                    print(frame)
+                    core_name = (
+                        respawn_dir.filename.split("_")[0]
+                        + respawn_dir.filename.split("_")[-1]
+                    )
+                    dir_name = "_".join(
+                        [
+                            f"e{epoch_num+1}s{seed_num}",
+                            core_name,
+                            f"f{frame[2]}m{frame[1]}",
+                        ]
+                    )
+                    dir_path = os.path.join(respawn_root, dir_name)
+                    os.mkdir(dir_path)
+                    workspace.add_file(
+                        dir_path,
+                        tags=[f"epoch_{epoch_num}_dir", f"seed_dir_{seed_num}"],
+                    )
+                    shutil.copy(topo.abs_path, dir_path)
+                    workspace.add_file(
+                        os.path.join(dir_path, topo.filename),
+                        tags=["topology", f"seed_{seed_num}", f"epoch_{epoch_num}"],
+                    )
+                    crd_path = os.path.join(dir_path, "selected_respawn.rst")
+                    pt.write_traj(crd_path, loaded, frame_indices=[frame[2]])
+                    shutil.move(
+                        os.path.join(dir_path, "selected_respawn.rst.1"), crd_path
+                    )
+                    workspace.add_file(
+                        crd_path,
+                        tags=[f"seed_{seed_num}", "coords", f"epoch_{epoch_num}"],
+                    )
+                    seed_num += 1
+
+    if workspace.check_all_files():
+        logger.critical(
+            f"File incosistencies after seed preparation after run of epoch {epoch_num}"
+        )
+        return -1
+    else:
+        logger.info(f"post-processing of epoch {epoch_num} was completed successfuly")
+        return workspace
