@@ -212,20 +212,20 @@ def prepare_epoch_run(
     for i in range(config.general.num_seeds):
         dname = os.path.join(
             run_root,
-            workspace.get_files[
+            workspace.get_files(
                 workspace.get_files_by_tags(
                     [f"epoch_{epoch_num-1}_dir", f"seed_dir_{i}"]
                 )
-            ].filename,
+            ).filename,
         )
         os.mkdir(dname)
         print(dname)
         workspace.add_file(dname, tags=[f"run_dir_epoch_{epoch_num}", f"run_seed_{i}"])
-        topo = workspace.get_files[
+        topo = workspace.get_files(
             workspace.get_files_by_tags(
                 [f"epoch_{epoch_num-1}", f"seed_{i}", "topology"]
             )
-        ]
+        )
         shutil.copy(topo.abs_path, dname)
         workspace.add_file(
             os.path.join(dname, topo.filename),
@@ -242,13 +242,13 @@ def prepare_epoch_run(
             tags=[f"run_epoch_{epoch_num}", f"seed_{i}", "coords"],
         )
         if config.general.pre_epoch_equil:
-            conf = workspace.get_files[workspace.get_files_by_tags("equil_config")]
+            conf = workspace.get_files(workspace.get_files_by_tags("equil_config"))
             shutil.copy(conf.abs_path, dname)
         if config.general.pre_epoch_heating:
-            conf = workspace.get_files[workspace.get_files_by_tags("heating_config")]
+            conf = workspace.get_files(workspace.get_files_by_tags("heating_config"))
             shutil.copy(conf.abs_path, dname)
         if config.aquaduct.run_aquaduct:
-            conf = workspace.get_files[workspace.get_files_by_tags(["config", "aqua"])]
+            conf = workspace.get_files(workspace.get_files_by_tags(["config", "aqua"]))
             shutil.copy(conf.abs_path, dname)
         conf = workspace.files[workspace.get_files_by_tags("prod_config")]
         shutil.copy(conf.abs_path, dname)
