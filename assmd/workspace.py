@@ -16,7 +16,6 @@ from assmd import config as conf
 
 
 def test_coords_and_project(tops, crds, proj_function):
-    projectTrajectory = None
     logger = logging.getLogger(__name__)
     try:
         with open(proj_function, "r") as f:
@@ -155,7 +154,7 @@ def prepare_initial_workspace(config: conf.JobConfig) -> fs.AdaptiveWorkplace:
         )
 
     crds, tops = [], []
-    for i in range(config.adaptive.num_seeds):
+    for i in range(config.general.num_seeds):
         tops.append(
             workspace.files[
                 workspace.get_files_by_tags([f"seed_{i}", "topology"])
@@ -171,7 +170,7 @@ def prepare_initial_workspace(config: conf.JobConfig) -> fs.AdaptiveWorkplace:
     )
 
     if len(workspace.get_files(workspace.get_files_by_tags("epoch_0_dir"))) == 1:
-        for i in range(1, config.adaptive.num_seeds):
+        for i in range(1, config.general.num_seeds):
             shutil.copytree(
                 os.path.join("inputs", "seed_0"), os.path.join("inputs", f"seed_{i}")
             )

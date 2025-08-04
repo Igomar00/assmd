@@ -6,6 +6,7 @@ Created on Thu Mar 27 13:51:42 2025
 @author: igor
 """
 
+import sys
 import logging
 import argparse
 import submitit as submit
@@ -18,6 +19,7 @@ from assmd import checkpointer as chk
 
 
 def main():
+    print(sys.argv)
     parser = argparse.ArgumentParser(
         description="Run adaptive molecular dynamics simulation with configuration file.",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,

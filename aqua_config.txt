@@ -6,7 +6,7 @@ trj = ./prod_traj.nc
 [traceable_residues]
 scope = backbone
 scope_convexhull = True
-object = (resname BRI) and (sphzone 8.0 (resnum 38 or resnum 104 or resnum 269))
+object = (resname BR) and (sphzone 8.0 (resnum 38 or resnum 104 or resnum 269))
 
 [raw_paths]
 execute = runonce
@@ -47,7 +47,7 @@ bandwidth = Auto
 [analysis]
 dump_config = True
 scope_chull = backbone
-object_chull = (resname BRI) and (sphzone 8.0 (resnum 38 or resnum 104 or resnum 269))
+object_chull = (resname BR) and (sphzone 8.0 (resnum 38 or resnum 104 or resnum 269))
 
 [visualize]
 execute = run
@@ -70,7 +70,7 @@ retain_all_types = False
 inlets_clusters = True
 show_molecule = protein
 show_scope_chull = protein
-show_object_chull = (resname BRI) and (sphzone 8.0 (resnum 38 or resnum 104 or resnum 269))
+show_object_chull = (resname BR) and (sphzone 8.0 (resnum 38 or resnum 104 or resnum 269))
 cluster_area = True
 cluster_area_precision = 20
 cluster_area_expand = 2

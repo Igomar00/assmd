@@ -317,12 +317,12 @@ def getNumMicrostates(numFrames):  # adapted from HTMD
 
 def getNumMacrostates(config: conf.JobConfig, data, num_micro):  # adapted from HTMD
     """Heuristic for calculating the number of macrostates for the Markov model"""
-    macronum = config.adaptive.num_macro
+    macronum = config.ligand_model.num_macro
     if num_micro < macronum:
         macronum = int(np.ceil(num_micro / 2))
     # Calculating how many timescales are above the lag time to limit number of macrostates
     counts = dt.markov.TransitionCountEstimator(
-        config.adaptive.markov_lag, "sliding"
+        config.ligand_model.markov_lag, "sliding"
     ).fit_fetch(data)
     model = dt.markov.msm.MaximumLikelihoodMSM(
         allow_disconnected=False, use_lcc=False
@@ -330,7 +330,7 @@ def getNumMacrostates(config: conf.JobConfig, data, num_micro):  # adapted from 
     its_data = dt.util.validation.implied_timescales(model, n_its=macronum)
     timesc = its_data._its
     macronum = min(
-        np.sum(timesc > config.adaptive.markov_lag), config.general.num_seeds
+        np.sum(timesc > config.ligand_model.markov_lag), config.general.num_seeds
     )
     return macronum
 
@@ -492,7 +492,6 @@ def processSimulations(
     )
 
     logger = logging.getLogger(__name__)
-    projectTrajectory = None
     os.chdir(config.working_dir)
 
     if not validateEpoch(
@@ -684,7 +683,7 @@ def processSimulations(
     core_set = active_set[core_idx]
     prob = respawn_weights / np.sum(respawn_weights)
     core_prob = prob[core_idx]
-    spawncounts = np.random.multinomial(config.adaptive.num_seeds, core_prob)
+    spawncounts = np.random.multinomial(config.general.num_seeds, core_prob)
     logger.info(f"resulting core set has {len(core_set)}")
     spawncounts_mapped = np.zeros(num_micro)
     spawncounts_mapped[core_set] = spawncounts
