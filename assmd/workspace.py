@@ -185,10 +185,10 @@ def prepare_initial_workspace(config: conf.JobConfig) -> fs.AdaptiveWorkplace:
     try:
         shutil.copyfile(config.general.prod_config_path, "prod.in")
         workspace.add_file("prod.in", tags="prod_config")
-        if config.init.pre_epoch_equil:
+        if config.general.pre_epoch_equil:
             shutil.copyfile(config.general.equil_config_path, "equil.in")
             workspace.add_file("equil.in", tags="equil_config")
-        if config.init.pre_epoch_heating:
+        if config.general.pre_epoch_heating:
             shutil.copyfile(config.general.heating_config_path, "heating.in")
             workspace.add_file("heating.in", tags="heating_config")
     except Exception as e:

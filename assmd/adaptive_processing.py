@@ -158,7 +158,7 @@ def validate_simulation_directories(
         return results
 
     # Check each simulation directory
-    for seed_num in range(config.adaptive.num_seeds):
+    for seed_num in range(config.general.num_seeds):
         dir_results = {"success": True, "errors": []}
 
         # Find simulation files
@@ -495,7 +495,7 @@ def processSimulations(
     os.chdir(config.working_dir)
 
     if not validateEpoch(
-        workspace, config, epoch_num, config.init.prod_num_frames, submitit_results
+        workspace, config, epoch_num, config.general.prod_num_frames, submitit_results
     ):
         return -1
 
