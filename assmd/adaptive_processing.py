@@ -352,11 +352,7 @@ def validateEpoch(workspace, config, epoch_num, prod_num_frames, submitit_result
                     for error in validation_results["details"]["simulations"][sim_dir][
                         "errors"
                     ]:
-                        logger.critical(
-                            validation_results["details"]["simulations"][sim_dir][
-                                "errors"
-                            ][error]
-                        )
+                        logger.critical(error)
         else:
             logger.critical("Submitit failed for jobs:")
             for error in validation_results["details"]["submitit"]["errors"]:
