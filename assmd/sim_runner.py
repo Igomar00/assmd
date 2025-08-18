@@ -152,7 +152,7 @@ def launch_epoch(
         with node_executor.batch():
             for wfiles in work_files:
                 job = node_executor.submit(
-                    sa.launch_heating, [f.abs_path for f in wfiles[0]], wfiles[1], wfiles[2]
+                    sa.launch_heating, wfiles[0].abs_path, wfiles[1], wfiles[2]
                 )
                 jobs.append(job)
                 n_work_files.append((wfiles[0], wfiles[1], "heating_coords.rst"))
@@ -203,7 +203,7 @@ def launch_epoch(
         with node_executor.batch():
             for wfiles in work_files:
                 job = node_executor.submit(
-                    sa.launch_equil, [f.abs_path for f in wfiles[0]], wfiles[1], wfiles[2]
+                    sa.launch_equil, wfiles[0].abs_path, wfiles[1], wfiles[2]
                 )
                 jobs.append(job)
                 n_work_files.append((wfiles[0], wfiles[1], "equil_coords.rst"))
@@ -253,7 +253,7 @@ def launch_epoch(
     jobs = []
     with node_executor.batch():
         for wfiles in work_files:
-            job = node_executor.submit(sa.launch_prod, [f.abs_path for f in wfiles[0]], wfiles[1], wfiles[2])
+            job = node_executor.submit(sa.launch_prod, wfiles[0].abs_path, wfiles[1], wfiles[2])
             jobs.append(job)
 
     # Track resubmitted jobs
