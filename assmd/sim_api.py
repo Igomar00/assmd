@@ -28,7 +28,7 @@ def safe_chdir(directory):
 
 
 def launch_prod(working_directory, topology, coords) -> Tuple[int, str]:
-    safe_chdir(working_directory.abs_path)
+    safe_chdir(working_directory)
 
     cmd = [
         "pmemd.cuda",
@@ -54,7 +54,7 @@ def launch_prod(working_directory, topology, coords) -> Tuple[int, str]:
 
 
 def launch_equil(working_directory, topology, coords) -> Tuple[int, str]:
-    safe_chdir(working_directory.abs_path)
+    safe_chdir(working_directory)
 
     cmd = [
         "pmemd.cuda",
@@ -82,7 +82,7 @@ def launch_equil(working_directory, topology, coords) -> Tuple[int, str]:
 
 
 def launch_heating(working_directory, topology, coords) -> Tuple[int, str]:
-    safe_chdir(working_directory.abs_path)
+    safe_chdir(working_directory)
 
     cmd = [
         "pmemd.cuda",

@@ -41,6 +41,7 @@ class MSMConfig(BaseModel):
 
 
 class General(BaseModel):
+    os_enthropy_seed: Optional[int] = Field(default=None)
     prod_config_path: str
     pre_epoch_heating: bool
     heating_config_path: Optional[str] = None
@@ -102,6 +103,9 @@ def loadConfig(config_path: str) -> JobConfig:  # Claude Sonnet 3.5
 
         # Create and validate JobConfig object
         job_config = JobConfig(**config_dict["job"])
+
+        if job_config.general.os_enthropy_seed is None:
+            
 
         return job_config
 

@@ -644,9 +644,8 @@ def processSimulations(
     N = np.zeros(num_micro)
     for frame in concatenated_microstates:
         N[frame] = N[frame] + 1
-    microvalue = (
-        N[msm.count_model.state_symbols] * micro_mult[msm.count_model.state_symbols]
-    )
+    microvalue = N[msm.count_model.state_symbols]
+
     res = np.zeros(num_macro)
     for i in range(len(microvalue)):
         macro = coarse_msm.assignments[i]
@@ -679,6 +678,7 @@ def processSimulations(
     core_set = active_set[core_idx]
     prob = respawn_weights / np.sum(respawn_weights)
     core_prob = prob[core_idx]
+
     spawncounts = np.random.multinomial(config.general.num_seeds, core_prob)
     logger.info(f"resulting core set has {len(core_set)}")
     spawncounts_mapped = np.zeros(num_micro)
