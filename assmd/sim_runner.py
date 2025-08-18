@@ -173,22 +173,25 @@ def launch_epoch(
                         result = (-1, f"Exception: {str(e)}")  # Treat as failed job
                     status, desc = validate_simulation_outputs(work_files[idx][0].abs_path, "heating")
                     if not status or result[0]!=0:
-                        # Resubmit failed job
-                        logger.info(
-                            f"Resubmitting failed heating job for seed {idx} in epoch {epoch_num}"
-                        )
-                        logger.info(
-                            f"due to {desc}"
-                        )
-                        new_job = node_executor.submit(
-                            sa.launch_heating,
-                            work_files[idx][0].abs_path,
-                            work_files[idx][1],
-                            work_files[idx][2],
-                        )
-                        jobs[idx] = new_job
-                        resubmitted[idx] = True
-                        pending_jobs.append(idx)
+                        if not resubmitted[idx]:
+                            # Resubmit failed job
+                            logger.info(
+                                f"Resubmitting failed heating job for seed {idx} in epoch {epoch_num}"
+                            )
+                            logger.info(
+                                f"due to {desc}"
+                            )
+                            new_job = node_executor.submit(
+                                sa.launch_heating,
+                                work_files[idx][0].abs_path,
+                                work_files[idx][1],
+                                work_files[idx][2],
+                            )
+                            jobs[idx] = new_job
+                            resubmitted[idx] = True
+                            pending_jobs.append(idx)
+                        else:
+                            logger.error(f"job for seed {idx} was already resubmitted")
 
         # Collect all results in original order
         outputs = [jobs[i].result() for i in range(len(jobs))]
@@ -221,22 +224,26 @@ def launch_epoch(
                         result = (-1, f"Exception: {str(e)}")  # Treat as failed job
                     status, desc = validate_simulation_outputs(work_files[idx][0].abs_path, "equilibration")
                     if not status or result[0]!=0:
-                        # Resubmit failed job
-                        logger.info(
-                            f"Resubmitting failed equil job for seed {idx} in epoch {epoch_num}"
-                        )
-                        logger.info(
-                            f"due to {desc}"
-                        )
-                        new_job = node_executor.submit(
-                            sa.launch_equil,
-                            work_files[idx][0].abs_path,
-                            work_files[idx][1],
-                            work_files[idx][2],
-                        )
-                        jobs[idx] = new_job
-                        resubmitted[idx] = True
-                        pending_jobs.append(idx)
+                        if not resubmitted[idx]:
+                            # Resubmit failed job
+                            logger.info(
+                                f"Resubmitting failed equil job for seed {idx} in epoch {epoch_num}"
+                            )
+                            logger.info(
+                                f"due to {desc}"
+                            )
+                            new_job = node_executor.submit(
+                                sa.launch_equil,
+                                work_files[idx][0].abs_path,
+                                work_files[idx][1],
+                                work_files[idx][2],
+                            )
+                            jobs[idx] = new_job
+                            resubmitted[idx] = True
+                            pending_jobs.append(idx)
+                        else:
+                            logger.error(f"job for seed {idx} was already resubmitted")
+
 
         # Collect all results in original order
         outputs += [jobs[i].result() for i in range(len(jobs))]
@@ -265,22 +272,25 @@ def launch_epoch(
                     result = (-1, f"Exception: {str(e)}")  # Treat as failed job
                 status, desc = validate_simulation_outputs(work_files[idx][0].abs_path, "production")
                 if not status or result[0]!=0:
-                    # Resubmit failed job
-                    logger.info(
-                        f"Resubmitting failed prod job for seed {idx} in epoch {epoch_num}"
-                    )
-                    logger.info(
-                        f"due to {desc}"
-                    )
-                    new_job = node_executor.submit(
-                        sa.launch_prod,
-                        work_files[idx][0].abs_path,
-                        work_files[idx][1],
-                        work_files[idx][2],
-                    )
-                    jobs[idx] = new_job
-                    resubmitted[idx] = True
-                    pending_jobs.append(idx)
+                    if not resubmitted[idx]:
+                        # Resubmit failed job
+                        logger.info(
+                            f"Resubmitting failed prod job for seed {idx} in epoch {epoch_num}"
+                        )
+                        logger.info(
+                            f"due to {desc}"
+                        )
+                        new_job = node_executor.submit(
+                            sa.launch_prod,
+                            work_files[idx][0].abs_path,
+                            work_files[idx][1],
+                            work_files[idx][2],
+                        )
+                        jobs[idx] = new_job
+                        resubmitted[idx] = True
+                        pending_jobs.append(idx)
+                    else:
+                        logger.error(f"job for seed {idx} was already resubmitted")
 
     # Collect all results in original order
     outputs += [jobs[i].result() for i in range(len(jobs))]
