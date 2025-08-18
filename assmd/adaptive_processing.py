@@ -422,6 +422,7 @@ def runStrip(topo, traj, mask):
 
 def prepStrip(config: conf.JobConfig, workspace: fs.AdaptiveWorkplace, epoch_num: int):
     logger = logging.getLogger(__name__)
+    logger.info("strip started")
     # get topos and coords
     inputs = []
     for i in range(config.general.num_seeds):
@@ -435,6 +436,7 @@ def prepStrip(config: conf.JobConfig, workspace: fs.AdaptiveWorkplace, epoch_num
                 [f"run_epoch_{epoch_num}", f"seed_{i}", "prod_traj"]
             )
         )
+        logger.info(f"strip args: {(topo, traj, config.aquaduct.post_run_strip_mask)}")
         inputs.append((topo, traj, config.aquaduct.post_run_strip_mask))
     with mp.Pool(np.max([config.slurm_master.ncpus - 1, 1])) as p:
         stripped_data = p.starmap(runStrip, inputs)
