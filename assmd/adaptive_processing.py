@@ -379,7 +379,7 @@ def runAquaduct(working_dir: str):
     try:
         result = subprocess.run(cmd, check=True, text=True, capture_output=True)
     except subprocess.CalledProcessError as e:
-        return -1, str(e)
+        return -1, str(e.stderr)+"\n"+str(e.stout)
     return 0, "all good"
 
 
@@ -394,6 +394,7 @@ def prepAquaduct(
         run_dir = workspace.get_files(
             workspace.get_files_by_tags([f"run_dir_epoch_{epoch_num}", f"run_seed_{i}"])
         )
+        logger.debug(f"adding {run_dir.abs_path}")
         input_dirs.append(run_dir.abs_path)
     with mp.Pool(np.max([config.slurm_master.ncpus - 1, 1])) as p:
         results = p.map(runAquaduct, input_dirs)
@@ -407,7 +408,7 @@ def prepAquaduct(
 
 
 def runStrip(topo, traj, mask):
-    working_dir = os.path.join(topo.abs_path, os.pardir)
+    working_dir = topo.abs_path.split("/")[:-1]
     os.chdir(working_dir)
     top = pt.load_topology(topo.abs_path)
     crd = pt.load(traj.abs_path, top=top)
