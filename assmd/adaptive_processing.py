@@ -378,9 +378,9 @@ def runAquaduct(working_dir: str):
     ]
     try:
         result = subprocess.run(cmd, check=True, text=True, capture_output=True)
-    except subprocess.CalledProcessError:
-        return -1
-    return 0
+    except subprocess.CalledProcessError as e:
+        return -1, str(e)
+    return 0, "all good"
 
 
 def prepAquaduct(
@@ -397,9 +397,11 @@ def prepAquaduct(
         input_dirs.append(run_dir.abs_path)
     with mp.Pool(np.max([config.slurm_master.ncpus - 1, 1])) as p:
         results = p.map(runAquaduct, input_dirs)
-    if np.any([x != 0 for x in results]):
-        failed = input_dirs[results.index(-1)]
-        logger.critical(f"aquaduct failed at least for path: {failed}")
+
+    failed = [i for i,x in results if x[0]!=0]
+    if len(failed)>0:
+        for idx in failed:
+            logger.error(f"aquaduct failed with error {results[idx][1]}")
     else:
         logger.info(f"aquaduct completed for epoch {epoch_num}")
 
@@ -435,7 +437,7 @@ def prepStrip(config: conf.JobConfig, workspace: fs.AdaptiveWorkplace, epoch_num
         )
         inputs.append((topo, traj, config.aquaduct.post_run_strip_mask))
     with mp.Pool(np.max([config.slurm_master.ncpus - 1, 1])) as p:
-        stripped_data = p.starmap(runStrip(), inputs)
+        stripped_data = p.starmap(runStrip, inputs)
     for paths in stripped_data:
         workspace.add_file(paths[0], tags=paths[2].tags)
         workspace.add_file(paths[1], tags=paths[3].tags)
