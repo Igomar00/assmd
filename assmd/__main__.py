@@ -50,10 +50,12 @@ def main():
         handlers=[logging.FileHandler(log_path), logging.StreamHandler()],
     )
     logger = logging.getLogger(__name__)
-
+    
     if args.config:
         conf_file = args.config
         job_def = conf.loadConfig(conf_file)
+        logger.info(f"USING OS ENTROPY VALUE: {job_def.general.os_enthropy_seed}")
+
 
         # normal operation
         init_executor = submit.AutoExecutor(folder=job_def.slurm_log_dir)

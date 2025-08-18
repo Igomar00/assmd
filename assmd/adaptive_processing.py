@@ -679,7 +679,8 @@ def processSimulations(
     prob = respawn_weights / np.sum(respawn_weights)
     core_prob = prob[core_idx]
 
-    spawncounts = np.random.multinomial(config.general.num_seeds, core_prob)
+    gen = np.random.default_rng(seed=config.general.os_enthropy_seed)
+    spawncounts = gen.multinomial(config.general.num_seeds, core_prob)
     logger.info(f"resulting core set has {len(core_set)}")
     spawncounts_mapped = np.zeros(num_micro)
     spawncounts_mapped[core_set] = spawncounts

@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field, ValidationError
 from typing import List, Optional, Literal
 import os
 import yaml
+import numpy as np
 
 
 class SlurmConfig(BaseModel):
@@ -105,6 +106,8 @@ def loadConfig(config_path: str) -> JobConfig:  # Claude Sonnet 3.5
         job_config = JobConfig(**config_dict["job"])
 
         if job_config.general.os_enthropy_seed is None:
+            sq = np.random.SeedSequence()
+            job_config.general.os_enthropy_seed = sq
             
 
         return job_config
