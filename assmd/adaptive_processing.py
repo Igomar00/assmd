@@ -407,7 +407,7 @@ def prepAquaduct(
 
 
 def runStrip(topo, traj, mask):
-    working_dir = os.path.pardir(topo.abs_path)
+    working_dir = os.path.join(topo.abs_path, os.pardir)
     os.chdir(working_dir)
     top = pt.load_topology(topo.abs_path)
     crd = pt.load(traj.abs_path, top=top)
@@ -436,7 +436,7 @@ def prepStrip(config: conf.JobConfig, workspace: fs.AdaptiveWorkplace, epoch_num
                 [f"run_epoch_{epoch_num}", f"seed_{i}", "prod_traj"]
             )
         )
-        logger.info(f"strip args: {(topo, traj, config.aquaduct.post_run_strip_mask)}")
+        #logger.info(f"strip args: {(topo, traj, config.aquaduct.post_run_strip_mask)}")
         inputs.append((topo, traj, config.aquaduct.post_run_strip_mask))
     with mp.Pool(np.max([config.slurm_master.ncpus - 1, 1])) as p:
         stripped_data = p.starmap(runStrip, inputs)
