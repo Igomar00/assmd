@@ -435,7 +435,7 @@ def prepStrip(config: conf.JobConfig, workspace: fs.AdaptiveWorkplace, epoch_num
         )
         inputs.append((topo, traj, config.aquaduct.post_run_strip_mask))
     with mp.Pool(np.max([config.slurm_master.ncpus - 1, 1])) as p:
-        stripped_data = p.starmap(runStrip, inputs)
+        stripped_data = p.starmap(runStrip(), inputs)
     for paths in stripped_data:
         workspace.add_file(paths[0], tags=paths[2].tags)
         workspace.add_file(paths[1], tags=paths[3].tags)

@@ -85,8 +85,8 @@ def validate_simulation_outputs(directory: str, job_type: str) -> tuple[bool, st
     # Define expected files for each job type
     expected_files = {
         'heating': ['heating_coords.rst', "heating_traj.nc"],
-        'equilibration': ['equil_coords.rst', 'equil_traj.nc'],
-        'production': ['prod_traj.nc', "prod_coords.rst"]
+        'equil': ['equil_coords.rst', 'equil_traj.nc'],
+        'prod': ['prod_traj.nc', "prod_coords.rst"]
     }
     
     # Define common log files to check
@@ -222,7 +222,7 @@ def launch_epoch(
                     except Exception as e:
                         logger.error(f"Job {idx} threw exception: {e}")
                         result = (-1, f"Exception: {str(e)}")  # Treat as failed job
-                    status, desc = validate_simulation_outputs(work_files[idx][0].abs_path, "equilibration")
+                    status, desc = validate_simulation_outputs(work_files[idx][0].abs_path, "equil")
                     if not status or result[0]!=0:
                         if not resubmitted[idx]:
                             # Resubmit failed job
@@ -270,7 +270,7 @@ def launch_epoch(
                 except Exception as e:
                     logger.error(f"Job {idx} threw exception: {e}")
                     result = (-1, f"Exception: {str(e)}")  # Treat as failed job
-                status, desc = validate_simulation_outputs(work_files[idx][0].abs_path, "production")
+                status, desc = validate_simulation_outputs(work_files[idx][0].abs_path, "prod")
                 if not status or result[0]!=0:
                     if not resubmitted[idx]:
                         # Resubmit failed job
