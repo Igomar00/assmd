@@ -379,7 +379,7 @@ def runAquaduct(working_dir: str):
     try:
         result = subprocess.run(cmd, check=True, text=True, capture_output=True)
     except subprocess.CalledProcessError as e:
-        return -1, str(e.stderr)+"\n"+str(e.stout)
+        return -1, str(e.stderr)+"\n"+str(e.stdout)
     return 0, "all good"
 
 
