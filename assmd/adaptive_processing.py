@@ -370,7 +370,9 @@ def runAquaduct(working_dir: str):
     os.chdir(working_dir)
     cmd = [
         "conda",
-        "run -n aquaduct",
+        "run",
+        "-n",
+        "aquaduct",
         "valve.py",
         "-c",
         "aquaduct_config.txt",
@@ -409,6 +411,7 @@ def prepAquaduct(
 
 def runStrip(topo, traj, mask):
     working_dir = topo.abs_path.split("/")[:-1]
+    working_dir = "/"+"/".join(working_dir)
     os.chdir(working_dir)
     top = pt.load_topology(topo.abs_path)
     crd = pt.load(traj.abs_path, top=top)
