@@ -419,7 +419,7 @@ def runStrip(topo, traj, ligand_mask, water_o_mask, dist_cutoff):
     water_o_idx = pt.select_atoms(water_o_mask, top)
     dist_masks = []
     for water_o in water_o_idx:
-        mask = f"{ligand_mask} @{water_o_idx}"
+        mask = f"{ligand_mask} @{water_o}"
         dist_masks.append(mask)
     distance_matrix = pt.distance(crd, dist_masks, top=top, image=True)
     water_false_idx = np.where(np.all(distance_matrix < dist_cutoff, axis=0))[0]
