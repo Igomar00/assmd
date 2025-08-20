@@ -58,7 +58,9 @@ class General(BaseModel):
 class AquaDuctSetup(BaseModel):
     run_aquaduct: bool
     config_file: str = Field(default=None)
-    post_run_strip_mask: Optional[str] = Field(default=None)
+    water_oxygen_mask: Optional[str] = Field(default=":WAT@O")
+    ligand_mask: str
+    water_sphere_radius: Optional[float] = Field(default=8.0)
 
 
 class JobConfig(BaseModel):
@@ -74,7 +76,7 @@ class JobConfig(BaseModel):
 
 def loadConfig(config_path: str) -> JobConfig:  # Claude Sonnet 3.5
     """
-    Load and validate configuration from a YAML file.    counts = dt.markov.TransitionCountEstimator(lagtime, count_mode)
+    Load and validate configuration from a YAML file.
 
 
     Args:
@@ -108,7 +110,6 @@ def loadConfig(config_path: str) -> JobConfig:  # Claude Sonnet 3.5
         if job_config.general.os_enthropy_seed is None:
             sq = np.random.SeedSequence()
             job_config.general.os_enthropy_seed = sq
-            
 
         return job_config
 

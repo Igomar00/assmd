@@ -17,6 +17,7 @@ import deeptime as dt
 import pytraj as pt
 from typing import List, Dict, Tuple
 import multiprocessing as mp
+from itertools import groupby
 
 from assmd import file_structure as fs
 from assmd import config as conf
@@ -381,7 +382,7 @@ def runAquaduct(working_dir: str):
     try:
         result = subprocess.run(cmd, check=True, text=True, capture_output=True)
     except subprocess.CalledProcessError as e:
-        return -1, str(e.stderr)+"\n"+str(e.stdout)
+        return -1, str(e.stderr) + "\n" + str(e.stdout)
     return 0, "all good"
 
 
@@ -401,27 +402,53 @@ def prepAquaduct(
     with mp.Pool(np.max([config.slurm_master.ncpus - 1, 1])) as p:
         results = p.map(runAquaduct, input_dirs)
 
-    failed = [i for i,x in results if x[0]!=0]
-    if len(failed)>0:
+    failed = [i for i, x in enumerate(results) if x[0] != 0]
+    if len(failed) > 0:
         for idx in failed:
             logger.error(f"aquaduct failed with error {results[idx][1]}")
     else:
         logger.info(f"aquaduct completed for epoch {epoch_num}")
 
 
-def runStrip(topo, traj, mask):
+def runStrip(topo, traj, ligand_mask, water_o_mask, dist_cutoff):
     working_dir = topo.abs_path.split("/")[:-1]
-    working_dir = "/"+"/".join(working_dir)
+    working_dir = "/" + "/".join(working_dir)
     os.chdir(working_dir)
     top = pt.load_topology(topo.abs_path)
     crd = pt.load(traj.abs_path, top=top)
-    stripped_traj = crd.strip(mask=mask)
-    stripped_parm = top.strip(mask=mask)
+    water_o_idx = pt.select_atoms(water_o_mask, top)
+    dist_masks = []
+    for water_o in water_o_idx:
+        mask = f"{ligand_mask} @{water_o_idx}"
+        dist_masks.append(mask)
+    distance_matrix = pt.distance(crd, dist_masks, top=top, image=True)
+    water_false_idx = np.where(np.all(distance_matrix < dist_cutoff, axis=0))[0]
+    water_to_retain_atom_idx = water_o_idx[water_false_idx]
+    residues_to_retain_idx = [
+        top.atom(i).residue.index for i in water_to_retain_atom_idx
+    ]
+
+    def create_amber_mask(residue_ids):  # helper fuction
+        if not residue_ids:
+            return ""
+        sorted_ids = sorted(set(residue_ids))
+        ranges = []
+        for k, g in groupby(enumerate(sorted_ids), lambda x: x[1] - x[0]):
+            group = list(g)
+            if len(group) == 1:
+                ranges.append(str(group[0][1]))
+            else:
+                ranges.append(f"{group[0][1]}-{group[-1][1]}")
+        return ",".join(ranges)
+
+    strip_mask = f"(!:{create_amber_mask(residues_to_retain_idx)})&(:WAT)"
+    stripped_traj = crd.strip(mask=strip_mask)
+    stripped_top = top.strip(mask=strip_mask)
     straj = os.path.join(working_dir, "stripped.nc")
     sparm = os.path.join(working_dir, "stripped.parm7")
-    pt.save(sparm, stripped_parm)
+    pt.save(sparm, stripped_top)
     pt.save(straj, stripped_traj)
-    return sparm, straj, topo, traj
+    return sparm, straj, top, crd, strip_mask
 
 
 def prepStrip(config: conf.JobConfig, workspace: fs.AdaptiveWorkplace, epoch_num: int):
@@ -440,8 +467,16 @@ def prepStrip(config: conf.JobConfig, workspace: fs.AdaptiveWorkplace, epoch_num
                 [f"run_epoch_{epoch_num}", f"seed_{i}", "prod_traj"]
             )
         )
-        #logger.info(f"strip args: {(topo, traj, config.aquaduct.post_run_strip_mask)}")
-        inputs.append((topo, traj, config.aquaduct.post_run_strip_mask))
+        # logger.info(f"strip args: {(topo, traj, config.aquaduct.post_run_strip_mask)}")
+        inputs.append(
+            (
+                topo,
+                traj,
+                config.aquaduct.ligand_mask,
+                config.aquaduct.water_oxygen_mask,
+                config.aquaduct.water_sphere_radius,
+            )
+        )
     with mp.Pool(np.max([config.slurm_master.ncpus - 1, 1])) as p:
         stripped_data = p.starmap(runStrip, inputs)
     for paths in stripped_data:
@@ -449,9 +484,9 @@ def prepStrip(config: conf.JobConfig, workspace: fs.AdaptiveWorkplace, epoch_num
         workspace.add_file(paths[1], tags=paths[3].tags)
         workspace.unregister_file(paths[2])
         workspace.unregister_file(paths[3], remove=True)
-    logger.info(
-        f"Solvent selected by mask {config.aquaduct.post_run_strip_mask} was stripped from the trajectories"
-    )
+        logger.info(
+            f"Solvent selected by mask {paths[4]} was stripped from the trajectory {paths[3]}"
+        )
 
 
 def tmpProteinProjection(traj):
@@ -506,8 +541,7 @@ def processSimulations(
     if config.aquaduct.run_aquaduct:
         prepAquaduct(config, workspace, epoch_num)
 
-    if config.aquaduct.post_run_strip_mask is not None:
-        prepStrip(config, workspace, epoch_num)
+    prepStrip(config, workspace, epoch_num)
 
     # load projection function
     with open(
