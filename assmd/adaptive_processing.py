@@ -541,7 +541,7 @@ def processSimulations(
     if config.aquaduct.run_aquaduct:
         prepAquaduct(config, workspace, epoch_num)
 
-    prepStrip(config, workspace, epoch_num)
+    # prepStrip(config, workspace, epoch_num)
 
     # load projection function
     with open(
