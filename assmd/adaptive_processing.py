@@ -514,7 +514,7 @@ def uniq_sort(array):
     np.fill_diagonal(dist_matrix, 0)
     avg_distances = np.sum(dist_matrix, axis=1) / (n - 1)
     sorted_idx = np.argsort(avg_distances)[::-1]
-    return sorted_idx
+    return list(sorted_idx)
 
 
 def processSimulations(
@@ -751,7 +751,7 @@ def processSimulations(
             logger.info(
                 f"population of microstate {state} is too small to cover given respawn value, respawn conformation will repeat"
             )
-            mult = np.ceil((to_sample / len(uniq_sorted_idx)))
+            mult = int(np.ceil((to_sample / len(uniq_sorted_idx))))
             uniq_sorted_idx_mult = uniq_sorted_idx * mult
             selected_idx = uniq_sorted_idx_mult[:to_sample]
         for idx in selected_idx:
