@@ -616,7 +616,7 @@ def processSimulations(
         processed_trajs = tica.fit_transform([x[1] for x in featurized_trajs])
         processed_trajs = [(x[0], y) for x, y in zip(featurized_trajs, processed_trajs)]
         logger.info(
-            f"tICA with lagtime {config.ligand_model.ticalag} and {tica.dim} dims explained {tica.fetch_model().cumulative_kinetic_variance}"
+            f"tICA with lagtime {config.ligand_model.ticalag} and {tica.fetch_model()} dims explained 95% variance"
         )
 
     # microstate clustering with kmeansminibatch
@@ -672,15 +672,16 @@ def processSimulations(
     )
     logger.debug(f"len of assigment matrix {len(coarse_msm.assignments)}")
 
+    logger.debug(
+        f"stationary distribution of pcca model is: {[str(x) for x in coarse_msm.coarse_grained_stationary_probability]}"
+    )
+
     res = np.zeros(num_macro)
     microvalue = np.ones(micronum)
-    micro_mult = np.zeros(micronum)
     for i in range(len(microvalue)):
         macro = coarse_msm.assignments[i]
-        membership_value = coarse_msm.memberships[i][macro]
         res[macro] = res[macro] + microvalue[i]
         # discriminate agains poorly defined microstates
-        micro_mult[i] = membership_value
 
     nMicroPerMacro = res
     N = np.zeros(num_micro)
@@ -698,6 +699,7 @@ def processSimulations(
         p_i = 1 / (res + 0.000001)
 
     p_i = p_i / nMicroPerMacro
+    logger.debug(f"final p_i for msm : {p_i}")
     respawn_weights = p_i[coarse_msm.assignments]
 
     labeled_statelist = []
