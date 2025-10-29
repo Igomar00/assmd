@@ -102,9 +102,80 @@ def launch_heating(working_directory, topology, coords) -> Tuple[int, str]:
         "-ref",
         coords,
     ]
-    print(" ".join(cmd))
     try:
         result = subprocess.run(cmd, check=True, text=True, capture_output=True)
     except subprocess.CalledProcessError:
         return -1, " ".join(cmd)
+    return 0, " ".join(cmd)
+
+
+def launch_everything(working_directory, topology, coords) -> Tuple[int, str]:
+    safe_chdir(working_directory)
+
+    cmd = [
+        "pmemd.cuda",
+        "-O",
+        "-i",
+        "heating.in",
+        "-p",
+        topology,
+        "-c",
+        coords,
+        "-o",
+        "heating_log.out",
+        "-r",
+        "heating_coords.rst",
+        "-x",
+        "heating_traj.nc",
+        "-ref",
+        coords,
+    ]
+
+    try:
+        result = subprocess.run(cmd, check=True, text=True, capture_output=True)
+    except subprocess.CalledProcessError:
+        return -1, " ".join(cmd)
+
+    cmd = [
+        "pmemd.cuda",
+        "-O",
+        "-i",
+        "equil.in",
+        "-p",
+        topology,
+        "-c",
+        "heating_coords.rst",
+        "-o",
+        "equil_log.out",
+        "-r",
+        "equil_coords.rst",
+        "-x",
+        "equil_traj.nc",
+        "-ref",
+        "heating_coords.rst",
+    ]
+    try:
+        result = subprocess.run(cmd, check=True, text=True, capture_output=True)
+    except subprocess.CalledProcessError:
+        return -1, " ".join(cmd)
+    cmd = [
+        "pmemd.cuda",
+        "-O",
+        "-i",
+        "prod.in",
+        "-p",
+        topology,
+        "-c",
+        "equil_coords.rst",
+        "-o",
+        "prod_log.out",
+        "-r",
+        "prod_coords.rst",
+        "-x",
+        "prod_traj.nc",
+    ]
+    try:
+        result = subprocess.run(cmd, check=True, text=True, capture_output=True)
+    except subprocess.CalledProcessError as e:
+        return -1, str(e)
     return 0, " ".join(cmd)

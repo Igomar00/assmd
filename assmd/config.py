@@ -33,6 +33,7 @@ class MDConfig(BaseModel):
 
 class MSMConfig(BaseModel):
     projection_function: str
+    protein_projection_function: str
     do_tica: bool = Field(default=True)
     ticadim: Optional[int] = Field(ge=1)
     ticalag: Optional[int] = Field(ge=1, default=1)  # ticalag in frames!
@@ -55,14 +56,6 @@ class General(BaseModel):
     update_rate: Optional[int] = Field(ge=1, default=600)
 
 
-class AquaDuctSetup(BaseModel):
-    run_aquaduct: bool
-    config_file: str = Field(default=None)
-    water_oxygen_mask: Optional[str] = Field(default=":WAT@O")
-    ligand_mask: str
-    water_sphere_radius: Optional[float] = Field(default=8.0)
-
-
 class JobConfig(BaseModel):
     working_dir: str
     slurm_log_dir: str
@@ -71,7 +64,6 @@ class JobConfig(BaseModel):
     slurm_master: SlurmConfig
     init: MDConfig
     ligand_model: MSMConfig
-    aquaduct: AquaDuctSetup
 
 
 def loadConfig(config_path: str) -> JobConfig:  # Claude Sonnet 3.5

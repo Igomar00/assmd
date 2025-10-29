@@ -15,10 +15,27 @@ from assmd import file_structure as fs
 from assmd import config as conf
 
 
-def test_coords_and_project(tops, crds, proj_function):
+def test_coords_and_project(tops, crds, proj_function, proj_function2):
     logger = logging.getLogger(__name__)
     try:
         with open(proj_function, "r") as f:
+            exec(f.read(), globals())
+    except SyntaxError as e:
+        logger.critical(f"Syntax error in the code: {e}")
+        logger.critical(f"Line number: {e.lineno}")
+        logger.critical(f"Text: {e.text}")
+        logger.critical(f"Offset: {e.offset}")
+        sys.exit(1)
+    except NameError as e:
+        logger.critical(f"Name error (undefined variable): {e}")
+        sys.exit(1)
+    except Exception as e:
+        logger.critical(f"Other error occurred: {type(e).__name__}")
+        logger.critical(f"Error message: {str(e)}")
+        sys.exit(1)
+
+    try:
+        with open(proj_function2, "r") as f:
             exec(f.read(), globals())
     except SyntaxError as e:
         logger.critical(f"Syntax error in the code: {e}")
@@ -44,6 +61,20 @@ def test_coords_and_project(tops, crds, proj_function):
             failed = True
         try:
             result = projectTrajectory(traj)
+        except Exception as e:
+            logger.critical(f"Projection function failed on seed {i} with error {e}")
+            failed = True
+        if result is not None:
+            logger.debug(f"seed {i} resulted in projection")
+            logger.debug(str(result))
+            result = None
+        try:
+            traj = pt.load(seed[1], top=seed[0])
+        except Exception:
+            logger.critical(f"failed to load init files for seed {i}")
+            failed = True
+        try:
+            result = proteinProjection(traj)
         except Exception as e:
             logger.critical(f"Projection function failed on seed {i} with error {e}")
             failed = True
@@ -138,20 +169,18 @@ def prepare_initial_workspace(config: conf.JobConfig) -> fs.AdaptiveWorkplace:
     workspace.add_file(
         os.path.join(config.working_dir, "projection.py"), tags=["projection"]
     )
-
-    if config.aquaduct.run_aquaduct:
-        try:
-            shutil.copyfile(
-                config.aquaduct.config_file,
-                os.path.join(config.working_dir, "aquaduct_config.txt"),
-            )
-        except Exception:
-            logger.critical("cant copy aquaduct_config_file to the working dir")
-            sys.exit(1)
-        workspace.add_file(
-            os.path.join(config.working_dir, "aquaduct_config.txt"),
-            tags=["aqua", "config"],
+    try:
+        shutil.copyfile(
+            config.ligand_model.protein_projection_function,
+            os.path.join(config.working_dir, "projection_protein.py"),
         )
+    except Exception as e:
+        logger.critical(f"cant copy projection function to working dir, {str(e)}")
+        sys.exit(1)
+    workspace.add_file(
+        os.path.join(config.working_dir, "projection_protein.py"),
+        tags=["projection_protein"],
+    )
 
     crds, tops = [], []
     for i in range(config.general.num_seeds):
@@ -246,9 +275,6 @@ def prepare_epoch_run(
             shutil.copy(conf.abs_path, dname)
         if config.general.pre_epoch_heating:
             conf = workspace.get_files(workspace.get_files_by_tags("heating_config"))
-            shutil.copy(conf.abs_path, dname)
-        if config.aquaduct.run_aquaduct:
-            conf = workspace.get_files(workspace.get_files_by_tags(["config", "aqua"]))
             shutil.copy(conf.abs_path, dname)
         conf = workspace.files[workspace.get_files_by_tags("prod_config")]
         shutil.copy(conf.abs_path, dname)

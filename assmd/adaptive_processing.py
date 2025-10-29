@@ -10,14 +10,11 @@ import os
 import shutil
 import logging
 import glob
-import subprocess
 import pickle
 import numpy as np
 import deeptime as dt
 import pytraj as pt
 from typing import List, Dict, Tuple
-import multiprocessing as mp
-from itertools import groupby
 
 from assmd import file_structure as fs
 from assmd import config as conf
@@ -367,142 +364,6 @@ def validateEpoch(workspace, config, epoch_num, prod_num_frames, submitit_result
     return True
 
 
-def runAquaduct(working_dir: str):
-    os.chdir(working_dir)
-    cmd = [
-        "conda",
-        "run",
-        "-n",
-        "aquaduct",
-        "valve.py",
-        "-c",
-        "aquaduct_config.txt",
-        "-t 1",
-    ]
-    try:
-        result = subprocess.run(cmd, check=True, text=True, capture_output=True)
-    except subprocess.CalledProcessError as e:
-        return -1, str(e.stderr) + "\n" + str(e.stdout)
-    return 0, "all good"
-
-
-def prepAquaduct(
-    config: conf.JobConfig, workspace: fs.AdaptiveWorkplace, epoch_num: int
-):
-    logger = logging.getLogger(__name__)
-
-    input_dirs = []
-    for i in range(config.general.num_seeds):
-        # get last epoch directory
-        run_dir = workspace.get_files(
-            workspace.get_files_by_tags([f"run_dir_epoch_{epoch_num}", f"run_seed_{i}"])
-        )
-        logger.debug(f"adding {run_dir.abs_path}")
-        input_dirs.append(run_dir.abs_path)
-    with mp.Pool(np.max([config.slurm_master.ncpus - 1, 1])) as p:
-        results = p.map(runAquaduct, input_dirs)
-
-    failed = [i for i, x in enumerate(results) if x[0] != 0]
-    if len(failed) > 0:
-        for idx in failed:
-            logger.error(f"aquaduct failed with error {results[idx][1]}")
-    else:
-        logger.info(f"aquaduct completed for epoch {epoch_num}")
-
-
-def runStrip(topo, traj, ligand_mask, water_o_mask, dist_cutoff):
-    working_dir = topo.abs_path.split("/")[:-1]
-    working_dir = "/" + "/".join(working_dir)
-    os.chdir(working_dir)
-    top = pt.load_topology(topo.abs_path)
-    crd = pt.load(traj.abs_path, top=top)
-    water_o_idx = pt.select_atoms(water_o_mask, top)
-    dist_masks = []
-    for water_o in water_o_idx:
-        mask = f"{ligand_mask} @{water_o}"
-        dist_masks.append(mask)
-    distance_matrix = pt.distance(crd, dist_masks, top=top, image=True)
-    water_false_idx = np.where(np.all(distance_matrix < dist_cutoff, axis=0))[0]
-    water_to_retain_atom_idx = water_o_idx[water_false_idx]
-    residues_to_retain_idx = [
-        top.atom(i).residue.index for i in water_to_retain_atom_idx
-    ]
-
-    def create_amber_mask(residue_ids):  # helper fuction
-        if not residue_ids:
-            return ""
-        sorted_ids = sorted(set(residue_ids))
-        ranges = []
-        for k, g in groupby(enumerate(sorted_ids), lambda x: x[1] - x[0]):
-            group = list(g)
-            if len(group) == 1:
-                ranges.append(str(group[0][1]))
-            else:
-                ranges.append(f"{group[0][1]}-{group[-1][1]}")
-        return ",".join(ranges)
-
-    strip_mask = f"(!:{create_amber_mask(residues_to_retain_idx)})&(:WAT)"
-    stripped_traj = crd.strip(mask=strip_mask)
-    stripped_top = top.strip(mask=strip_mask)
-    straj = os.path.join(working_dir, "stripped.nc")
-    sparm = os.path.join(working_dir, "stripped.parm7")
-    pt.save(sparm, stripped_top)
-    pt.save(straj, stripped_traj)
-    return sparm, straj, top, crd, strip_mask
-
-
-def prepStrip(config: conf.JobConfig, workspace: fs.AdaptiveWorkplace, epoch_num: int):
-    logger = logging.getLogger(__name__)
-    logger.info("strip started")
-    # get topos and coords
-    inputs = []
-    for i in range(config.general.num_seeds):
-        topo = workspace.get_files(
-            workspace.get_files_by_tags(
-                [f"run_epoch_{epoch_num}", f"seed_{i}", "topology"]
-            )
-        )
-        traj = workspace.get_files(
-            workspace.get_files_by_tags(
-                [f"run_epoch_{epoch_num}", f"seed_{i}", "prod_traj"]
-            )
-        )
-        # logger.info(f"strip args: {(topo, traj, config.aquaduct.post_run_strip_mask)}")
-        inputs.append(
-            (
-                topo,
-                traj,
-                config.aquaduct.ligand_mask,
-                config.aquaduct.water_oxygen_mask,
-                config.aquaduct.water_sphere_radius,
-            )
-        )
-    with mp.Pool(np.max([config.slurm_master.ncpus - 1, 1])) as p:
-        stripped_data = p.starmap(runStrip, inputs)
-    for paths in stripped_data:
-        workspace.add_file(paths[0], tags=paths[2].tags)
-        workspace.add_file(paths[1], tags=paths[3].tags)
-        workspace.unregister_file(paths[2])
-        workspace.unregister_file(paths[3], remove=True)
-        logger.info(
-            f"Solvent selected by mask {paths[4]} was stripped from the trajectory {paths[3]}"
-        )
-
-
-def tmpProteinProjection(traj):
-    feats = []
-    # here extract features using pytraj
-    dihedrals = pt.multidihedral(
-        traj=traj, dihedral_types="phi psi", resrange=range(11, 286)
-    )
-    # assing features to feats variable in way that feats is a list of lists (list for each feature)
-    for dih in dihedrals:
-        feats.append(dih.values)
-    combined = np.column_stack(feats)
-    # np.array is a expected return rows:frames, columns:features
-    return combined
-
-
 def uniq_sort(array):
     n = array.shape[0]
     if n == 1:
@@ -538,14 +399,15 @@ def processSimulations(
     ):
         return -1
 
-    if config.aquaduct.run_aquaduct:
-        prepAquaduct(config, workspace, epoch_num)
-
-    # prepStrip(config, workspace, epoch_num)
-
     # load projection function
     with open(
         workspace.get_files(workspace.get_files_by_tags("projection")).abs_path, "r"
+    ) as f:
+        exec(f.read(), globals())
+        # load projection function
+    with open(
+        workspace.get_files(workspace.get_files_by_tags("protein_projection")).abs_path,
+        "r",
     ) as f:
         exec(f.read(), globals())
 
@@ -565,7 +427,7 @@ def processSimulations(
         traj = pt.load(crds.abs_path, top=topo.abs_path)
         # project trajectory
         projected_traj = projectTrajectory(traj)
-        protein_dih_projection = tmpProteinProjection(traj)
+        protein_dih_projection = proteinProjection(traj)
 
         del traj
         # save timeseries
