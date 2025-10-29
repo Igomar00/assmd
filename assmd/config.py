@@ -35,7 +35,6 @@ class MSMConfig(BaseModel):
     projection_function: str
     protein_projection_function: str
     do_tica: bool = Field(default=True)
-    ticadim: Optional[int] = Field(ge=1)
     ticalag: Optional[int] = Field(ge=1, default=1)  # ticalag in frames!
     num_macro: Optional[int] = Field(ge=1, default=8)
     num_micro: Optional[int] = Field(ge=-1, default=-1)

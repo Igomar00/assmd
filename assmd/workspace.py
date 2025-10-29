@@ -179,7 +179,7 @@ def prepare_initial_workspace(config: conf.JobConfig) -> fs.AdaptiveWorkplace:
         sys.exit(1)
     workspace.add_file(
         os.path.join(config.working_dir, "projection_protein.py"),
-        tags=["projection_protein"],
+        tags=["protein_projection"],
     )
 
     crds, tops = [], []
@@ -195,7 +195,10 @@ def prepare_initial_workspace(config: conf.JobConfig) -> fs.AdaptiveWorkplace:
             ].abs_path
         )
     test_coords_and_project(
-        tops, crds, workspace.files[workspace.get_files_by_tags("projection")].abs_path
+        tops,
+        crds,
+        workspace.files[workspace.get_files_by_tags("projection")].abs_path,
+        workspace.files[workspace.get_files_by_tags("protein_projection")].abs_path,
     )
 
     if len(workspace.get_files(workspace.get_files_by_tags("epoch_0_dir"))) == 1:
