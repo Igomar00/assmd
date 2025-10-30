@@ -7,8 +7,27 @@ Dataclases for file menagement in adaptive sampling protocol
 """
 import os
 import sys
+import shutil
+import time
 from numpy import any
 from typing import Literal
+
+
+def safe_copy(src, dest):
+    times = [5, 30, 60, 180, 300]
+    attempt = 0
+    size = os.stat(src).st_size
+    bname = os.path.basename(src)
+
+    while attempt < 5:
+        shutil.copy(src, dest)
+        copied_size = os.stat(os.path.join(dest, bname)).st_size
+        if copied_size == size:
+            return os.path.join(dest, bname)
+        else:
+            time.sleep(times[attempt])
+            attempt += 1
+    raise Exception(f"safe copy of {src} to {dest} failed")
 
 
 class FileBase:

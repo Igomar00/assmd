@@ -258,7 +258,7 @@ def prepare_epoch_run(
                 [f"epoch_{epoch_num-1}", f"seed_{i}", "topology"]
             )
         )
-        shutil.copy(topo.abs_path, dname)
+        fs.safe_copy(topo.abs_path, dname)
         workspace.add_file(
             os.path.join(dname, topo.filename),
             tags=[f"run_epoch_{epoch_num}", f"seed_{i}", "topology"],
@@ -268,19 +268,19 @@ def prepare_epoch_run(
         )
         if isinstance(coords, list):
             print([x.abs_path for x in coords])
-        shutil.copy(coords.abs_path, dname)
+        fs.safe_copy(coords.abs_path, dname)
         workspace.add_file(
             os.path.join(dname, coords.filename),
             tags=[f"run_epoch_{epoch_num}", f"seed_{i}", "coords"],
         )
         if config.general.pre_epoch_equil:
             conf = workspace.get_files(workspace.get_files_by_tags("equil_config"))
-            shutil.copy(conf.abs_path, dname)
+            fs.safe_copy(conf.abs_path, dname)
         if config.general.pre_epoch_heating:
             conf = workspace.get_files(workspace.get_files_by_tags("heating_config"))
-            shutil.copy(conf.abs_path, dname)
+            fs.safe_copy(conf.abs_path, dname)
         conf = workspace.files[workspace.get_files_by_tags("prod_config")]
-        shutil.copy(conf.abs_path, dname)
+        fs.safe_copy(conf.abs_path, dname)
 
     if workspace.check_all_files():
         logger = logging.getLogger(__name__)

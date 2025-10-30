@@ -478,7 +478,7 @@ def processSimulations(
         processed_trajs = tica.fit_transform([x[1] for x in featurized_trajs])
         processed_trajs = [(x[0], y) for x, y in zip(featurized_trajs, processed_trajs)]
         logger.info(
-            f"tICA with lagtime {config.ligand_model.ticalag} and {tica.fetch_model()} dims explained 95% variance"
+            f"tICA with lagtime {config.ligand_model.ticalag} and {np.shape(processed_trajs[0][1])[1]} dims explained 95% variance"
         )
 
     # microstate clustering with kmeansminibatch
@@ -672,7 +672,7 @@ def processSimulations(
                         dir_path,
                         tags=[f"epoch_{epoch_num}_dir", f"seed_dir_{seed_num}"],
                     )
-                    shutil.copy(topo.abs_path, dir_path)
+                    fs.safe_copy(topo.abs_path, dir_path)
                     workspace.add_file(
                         os.path.join(dir_path, topo.filename),
                         tags=["topology", f"seed_{seed_num}", f"epoch_{epoch_num}"],
