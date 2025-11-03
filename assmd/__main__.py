@@ -34,12 +34,23 @@ def main():
         type=str,
         help="Path to the .chkpoint file from started protocol",
     )
+    exclusive.add_argument(
+        "-R",
+        "--recover",
+        type=str,
+        help="Path to existing working directory to recover and create checkpoints from",
+    )
     parser.add_argument(
         "-l",
         "--log",
         type=str,
         required=True,
         help="Path where log files will be written",
+    )
+    parser.add_argument(
+        "--config-for-recovery",
+        type=str,
+        help="Path to config file (required when using --recover mode)",
     )
     args = parser.parse_args()
     log_path = args.log
@@ -71,7 +82,89 @@ def main():
         workspace = init_job.result()
 
         start_epoch = 1
-        #
+
+    elif args.recover:
+        if not args.config_for_recovery:
+            logger.critical(
+                "--config-for-recovery is required when using --recover mode"
+            )
+            sys.exit(1)
+
+        working_dir = args.recover
+        conf_file = args.config_for_recovery
+
+        logger.info(f"RECOVERY MODE: Reconstructing workspace from {working_dir}")
+        job_def = conf.loadConfig(conf_file)
+
+        # Attempt to recover workspace and determine the stage
+        workspace, start_epoch, stage, submitit_results = chk.recover_workspace(
+            working_dir, job_def, logger
+        )
+
+        if workspace is None:
+            logger.critical("Failed to recover workspace from directory")
+            sys.exit(1)
+
+        logger.info(
+            f"Successfully recovered workspace. Epoch {start_epoch}, Stage: {stage}"
+        )
+
+        # Handle postsim recovery - need to run adaptive processing immediately
+        if stage == "postsim":
+            logger.info(
+                f"Running adaptive processing for epoch {start_epoch} (recovered from postsim)"
+            )
+
+            parsing_executor = submit.AutoExecutor(folder=job_def.slurm_log_dir)
+            parsing_executor.update_parameters(
+                timeout_min=job_def.slurm_master.time,
+                tasks_per_node=1,
+                nodes=1,
+                slurm_partition=job_def.slurm_master.partition,
+                slurm_job_name=job_def.slurm_master.name,
+                cpus_per_task=job_def.slurm_master.ncpus,
+                mem_gb=job_def.slurm_master.memory_gb,
+                local_setup=job_def.slurm_master.setup_commands,
+                slurm_account=job_def.slurm_master.account,
+                slurm_setup=job_def.slurm_master.setup_commands,
+            )
+
+            job = parsing_executor.submit(
+                ap.processSimulations,
+                job_def,
+                log_path,
+                workspace,
+                submitit_results,
+                start_epoch,
+            )
+            workspace = job.result()
+
+            # Create processed checkpoint
+            chkpoint = chk.Checkpoint(
+                log_path, job_def, workspace, start_epoch, "processed"
+            )
+            chkpoint.save()
+            logger.info(f"Adaptive processing complete for epoch {start_epoch}")
+
+            # Prepare for next epoch if not at the end
+            if start_epoch < job_def.general.num_epoch:
+                logger.info(f"Preparing run files for epoch {start_epoch + 1}")
+                ws.prepare_epoch_run(job_def, workspace, start_epoch + 1)
+
+            # Now continue with the next epoch
+            start_epoch = start_epoch + 1
+
+        elif stage == "processed":
+            # Need to prepare the next epoch's run files
+            if start_epoch < job_def.general.num_epoch:
+                logger.info(f"Preparing run files for epoch {start_epoch + 1}")
+                ws.prepare_epoch_run(job_def, workspace, start_epoch + 1)
+                start_epoch = start_epoch + 1
+            else:
+                logger.info("All epochs already completed")
+                sys.exit(0)
+        # else: stage == "presim", start_epoch is already set correctly
+
     elif args.restart:
         chk_file = args.restart
         chkpoint = chk.Checkpoint.load(chk_file)

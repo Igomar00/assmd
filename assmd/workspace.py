@@ -15,7 +15,7 @@ from assmd import file_structure as fs
 from assmd import config as conf
 
 
-def test_coords_and_project(tops, crds, proj_function, proj_function2):
+def test_coords_and_project(tops, crds, proj_function):
     logger = logging.getLogger(__name__)
     try:
         with open(proj_function, "r") as f:
