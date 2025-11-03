@@ -424,6 +424,8 @@ def processSimulations(
                 [f"seed_{i}", f"run_epoch_{epoch_num}", "prod_traj"]
             )
         )
+        print(topo)
+        print(crd)
         traj = pt.load(crds.abs_path, top=topo.abs_path)
         # project trajectory
         projected_traj = projectTrajectory(traj)
