@@ -425,7 +425,7 @@ def processSimulations(
             )
         )
         print(topo)
-        print(crd)
+        print(crds)
         traj = pt.load(crds.abs_path, top=topo.abs_path)
         # project trajectory
         projected_traj = projectTrajectory(traj)

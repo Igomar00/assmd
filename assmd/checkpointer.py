@@ -404,31 +404,6 @@ def recover_workspace(
                                 ],
                             )
                         # Register initial coords for the run
-                        elif (
-                            fname.startswith("coords")
-                            or fname.startswith("heating_coords")
-                            or fname.startswith("equil_coords")
-                        ) and fname.endswith((".rst", ".rst7", ".inpcrd")):
-                            # Only register the starting coords, not intermediate ones
-                            if e == 1 and fname.startswith("coords"):
-                                workspace.add_file(
-                                    fpath,
-                                    tags=[
-                                        f"run_epoch_{e}",
-                                        f"seed_{seed_idx}",
-                                        "coords",
-                                    ],
-                                )
-                            elif e > 1 and "respawn" in fname:
-                                workspace.add_file(
-                                    fpath,
-                                    tags=[
-                                        f"run_epoch_{e}",
-                                        f"seed_{seed_idx}",
-                                        "coords",
-                                    ],
-                                )
-
     # Check workspace integrity
     if workspace.check_all_files():
         logger.error(
